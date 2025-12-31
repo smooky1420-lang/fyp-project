@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Navbar from "../components/Navbar";
+import AppShell from "../components/AppShell";
 import {
   clearTokens,
   listDevices,
@@ -248,8 +248,8 @@ export default function Monitoring() {
   const latestFirst = useMemo(() => [...items].reverse(), [items]);
 
   return (
+    <AppShell title="Monitoring">
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <Navbar />
 
       <div className="p-6">
         <div className="max-w-5xl mx-auto">
@@ -543,6 +543,7 @@ export default function Monitoring() {
         </div>
       </div>
     </div>
+    </AppShell>
   );
 }
 

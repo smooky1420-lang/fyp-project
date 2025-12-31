@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import Navbar from "../components/Navbar";
+import AppShell from "../components/AppShell";
 import { getUserSettings, updateUserSettings } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Save, Loader2 } from "lucide-react";
@@ -53,8 +53,8 @@ export default function Settings() {
   }
 
   return (
+    <AppShell title="Settings">
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <Navbar />
 
       <div className="p-6">
         <div className="max-w-5xl mx-auto">
@@ -126,5 +126,6 @@ export default function Settings() {
         </div>
       </div>
     </div>
+    </AppShell>
   );
 }

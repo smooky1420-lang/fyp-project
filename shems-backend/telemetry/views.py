@@ -100,7 +100,7 @@ class TelemetryRangeAPI(APIView):
 
         limit_str = request.query_params.get("limit", "200")
         try:
-            limit = max(1, min(2000, int(limit_str)))
+            limit = max(1, min(20000, int(limit_str)))
         except ValueError:
             return Response({"detail": "Invalid limit."}, status=400)
 

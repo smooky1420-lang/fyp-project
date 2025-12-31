@@ -5,6 +5,8 @@ import Dashboard from "./pages/Dashboard";
 import DevicesPage from "./pages/Devices";
 import Monitoring from "./pages/Monitoring";
 import Settings from "./pages/Settings";
+import AlertsPage from "./pages/Alerts";
+
 
 
 export default function App() {
@@ -17,6 +19,7 @@ export default function App() {
       <Route path="/devices" element={<DevicesPage />} />
       <Route path="/monitoring" element={<Monitoring />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/alerts" element={<AlertsPage />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );

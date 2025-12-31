@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import AppShell from "../components/AppShell";
+import StatCard from "../components/StatCard";
+import UsageChart, { type ChartRange } from "../components/UsageChart";
+
+import { upsertAlerts, type AlertRecord } from "../lib/alerts";
+
 import {
+  clearTokens,
   listDevices,
   type Device,
   getLatestTelemetry,
@@ -8,14 +16,13 @@ import {
   getTodaySummary,
   type TodaySummary,
   type TodaySummaryDevice,
-  clearTokens,
 } from "../lib/api";
-import { useNavigate } from "react-router-dom";
 
-import Navbar from "../components/Navbar";
-import PowerUsageChart, { type RangeKey } from "../components/PowerUsageChart";
-import { Zap, Activity, Gauge, Wallet } from "lucide-react";
+import { Zap, Wallet, Wifi } from "lucide-react";
 
+function isoFromDaysAgo(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60_000).toISOString();
+}
 function isoFromHoursAgo(hours: number) {
   return new Date(Date.now() - hours * 60 * 60_000).toISOString();
 }
@@ -24,53 +31,61 @@ function formatKwh(v: number | null | undefined) {
   if (v === null || v === undefined || !Number.isFinite(v)) return "--";
   return v.toFixed(3);
 }
-
 function formatPkr(v: number | null | undefined) {
   if (v === null || v === undefined || !Number.isFinite(v)) return "--";
   return `PKR ${v.toFixed(2)}`;
 }
+function formatKwFromWatts(w: number | null | undefined) {
+  if (w === null || w === undefined || !Number.isFinite(w)) return "--";
+  return `${(w / 1000).toFixed(2)} kW`;
+}
 
-function aggregateLatest(latests: TelemetryReading[]): TelemetryReading | null {
-  if (!latests.length) return null;
+function latestIsOffline(latest: TelemetryReading | null, offlineSeconds = 120) {
+  if (!latest) return true;
+  const t = new Date(latest.created_at).getTime();
+  if (!Number.isFinite(t)) return true;
+  return Date.now() - t > offlineSeconds * 1000;
+}
 
-  // Approx: avg voltage, sum current/power
-  const vAvg = latests.reduce((s, r) => s + r.voltage, 0) / latests.length;
-  const currentSum = latests.reduce((s, r) => s + r.current, 0);
-  const powerSum = latests.reduce((s, r) => s + r.power, 0);
+function sumLatestHome(readings: TelemetryReading[]) {
+  if (!readings.length) return null;
+  const powerSum = readings.reduce((s, r) => s + r.power, 0);
+  return { ...readings[0], power: powerSum };
+}
 
-  return {
-    ...latests[0],
-    voltage: vAvg,
-    current: currentSum,
-    power: powerSum,
-    energy_kwh: 0,
-  };
+function ymd() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+function ymdHour() {
+  const d = new Date();
+  return `${d.toISOString().slice(0, 10)}T${String(d.getHours()).padStart(2, "0")}`; // YYYY-MM-DDTHH
 }
 
 export default function Dashboard() {
   const nav = useNavigate();
 
   const [devices, setDevices] = useState<Device[]>([]);
-  const [selectedId, setSelectedId] = useState<number | "all">("all");
+  const [selectedId, setSelectedId] = useState<number | "home">("home");
 
   const [latest, setLatest] = useState<TelemetryReading | null>(null);
-  const [range, setRange] = useState<TelemetryReading[] | TelemetryReading[][]>([]);
-  const [status, setStatus] = useState<string>("Loading...");
-
-  const [rangeKey, setRangeKey] = useState<RangeKey>("1h");
+  const [rangeData, setRangeData] = useState<TelemetryReading[] | TelemetryReading[][]>([]);
   const [today, setToday] = useState<TodaySummary | null>(null);
 
-  const selected = useMemo(() => {
-    if (selectedId === "all") return null;
+  const [range, setRange] = useState<ChartRange>("day");
+  const [statusText, setStatusText] = useState("Loading...");
+
+  const selectedDevice = useMemo(() => {
+    if (selectedId === "home") return null;
     return devices.find((d) => d.id === selectedId) || null;
   }, [devices, selectedId]);
 
   const selectedToday: TodaySummaryDevice | null = useMemo(() => {
-    if (!today || selectedId === "all") return null;
+    if (!today || selectedId === "home") return null;
     return today.devices.find((x) => x.device_id === selectedId) ?? null;
   }, [today, selectedId]);
 
-  const liveOk = status === "Live" || status === "Home (Live)";
+  const todayKwh = selectedId === "home" ? today?.home_total_kwh : selectedToday?.today_kwh;
+  const todayCost = selectedId === "home" ? today?.home_total_cost_pkr : selectedToday?.cost_pkr;
 
   // Load devices
   useEffect(() => {
@@ -78,8 +93,8 @@ export default function Dashboard() {
       try {
         const d = await listDevices();
         setDevices(d);
-        setSelectedId("all");
-        setStatus(d.length ? "Home (All devices)" : "No devices yet. Add devices first.");
+        setSelectedId("home");
+        setStatusText(d.length ? "Home Total selected" : "No devices yet. Add devices first.");
       } catch {
         clearTokens();
         nav("/login");
@@ -87,11 +102,11 @@ export default function Dashboard() {
     })();
   }, [nav]);
 
-  // Poll today summary (slow)
+  // Poll today summary
   useEffect(() => {
     let alive = true;
 
-    async function pollTodaySummary() {
+    async function poll() {
       try {
         const s = await getTodaySummary();
         if (!alive) return;
@@ -102,8 +117,8 @@ export default function Dashboard() {
       }
     }
 
-    pollTodaySummary();
-    const t = setInterval(pollTodaySummary, 30_000);
+    poll();
+    const t = setInterval(poll, 30_000);
 
     return () => {
       alive = false;
@@ -111,7 +126,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Poll live + chart depending on selection
+  // Poll latest
   useEffect(() => {
     if (!devices.length) return;
 
@@ -119,7 +134,7 @@ export default function Dashboard() {
 
     async function pollLatest() {
       try {
-        if (selectedId === "all") {
+        if (selectedId === "home") {
           const results = await Promise.all(
             devices.map(async (d) => {
               try {
@@ -130,31 +145,52 @@ export default function Dashboard() {
             })
           );
           if (!alive) return;
-
           const ok = results.filter((x): x is TelemetryReading => x !== null);
-          const agg = aggregateLatest(ok);
-
-          setLatest(agg);
-          setStatus(ok.length ? "Home (Live)" : "No readings yet (send telemetry).");
+          const home = sumLatestHome(ok);
+          setLatest(home);
+          setStatusText(ok.length ? "Home (Live)" : "No readings yet.");
         } else {
           const r = await getLatestTelemetry(selectedId);
           if (!alive) return;
           setLatest(r);
-          setStatus("Live");
+          setStatusText("Live");
         }
       } catch {
         if (!alive) return;
         setLatest(null);
-        setStatus("No readings yet (send telemetry).");
+        setStatusText("No readings yet.");
       }
     }
 
-    async function pollChart() {
-      try {
-        const fromISO = rangeKey === "1h" ? isoFromHoursAgo(1) : isoFromHoursAgo(24);
-        const limit = rangeKey === "1h" ? 1800 : 4000;
+    pollLatest();
+    const t = setInterval(pollLatest, 3000);
 
-        if (selectedId === "all") {
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [devices, selectedId]);
+
+  // Load chart range data
+  useEffect(() => {
+    if (!devices.length) return;
+
+    let alive = true;
+
+    function calcFromISO(r: ChartRange) {
+      if (r === "hour") return isoFromHoursAgo(1);
+      if (r === "day") return isoFromHoursAgo(24);
+      if (r === "week") return isoFromDaysAgo(7);
+      if (r === "month") return isoFromDaysAgo(30);
+      return isoFromDaysAgo(365);
+    }
+
+    async function loadRange() {
+      try {
+        const fromISO = calcFromISO(range);
+        const limit = 20000; // ✅ matches backend cap now
+
+        if (selectedId === "home") {
           const lists = await Promise.all(
             devices.map(async (d) => {
               try {
@@ -165,180 +201,160 @@ export default function Dashboard() {
             })
           );
           if (!alive) return;
-          setRange(lists); // ✅ chart supports TelemetryReading[][]
+          setRangeData(lists);
         } else {
           const items = await getTelemetryRange(selectedId, fromISO, undefined, limit);
           if (!alive) return;
-          setRange(items); // ✅ single device
+          setRangeData(items);
         }
       } catch {
         if (!alive) return;
-        setRange([]);
+        setRangeData([]);
       }
     }
 
-    pollLatest();
-    pollChart();
-
-    const t1 = setInterval(pollLatest, 2000);
-    const t2 = setInterval(pollChart, 8000);
+    loadRange();
+    const t = setInterval(loadRange, 15_000);
 
     return () => {
       alive = false;
-      clearInterval(t1);
-      clearInterval(t2);
+      clearInterval(t);
     };
-  }, [devices, selectedId, rangeKey]);
+  }, [devices, selectedId, range]);
 
-  // Dynamic totals (home vs selected device)
-  const totalsLabel = selectedId === "all" ? "Home Today (kWh)" : "Device Today (kWh)";
-  const totalsHint =
-    selectedId === "all"
-      ? "All devices"
-      : selected
-        ? selected.name
-        : "Selected device";
+  // ✅ Alerts generation (store for Alerts page + bell badge)
+  useEffect(() => {
+    // only generate once we have *some* context (devices loaded)
+    if (!devices.length) return;
 
-  const costLabel = selectedId === "all" ? "Home Cost" : "Device Cost";
-  const costHint = selectedId === "all" ? "Today total" : "Today (selected)";
+    const nowISO = new Date().toISOString();
+    const scope =
+      selectedId === "home" ? "home" : `device:${selectedId}`;
 
-  const totalsKwh = selectedId === "all" ? today?.home_total_kwh : selectedToday?.today_kwh;
-  const totalsCost = selectedId === "all" ? today?.home_total_cost_pkr : selectedToday?.cost_pkr;
+    const newAlerts: AlertRecord[] = [];
 
-  const headerDeviceText =
-    selectedId === "all"
-      ? "Home (All devices)"
-      : selected
-        ? `${selected.name}${selected.room ? ` (${selected.room})` : ""}`
-        : "Selected device";
+    // Offline (dedupe: one per day per scope)
+    const offline = latestIsOffline(latest, 120);
+    if (offline) {
+      newAlerts.push({
+        id: `offline:${scope}:${ymd()}`,
+        type: "offline",
+        title: selectedId === "home" ? "No live data" : "Device offline",
+        message:
+          selectedId === "home"
+            ? "No recent telemetry received. Check device power/network."
+            : "No telemetry in the last 2 minutes.",
+        created_at: nowISO,
+        read: false,
+      });
+    }
+
+    // High usage (dedupe: once per hour per scope)
+    const kw = latest && Number.isFinite(latest.power) ? latest.power / 1000 : null;
+    if (kw !== null && kw > 2.5) {
+      newAlerts.push({
+        id: `high:${scope}:${ymdHour()}`,
+        type: "high",
+        title: "High usage detected",
+        message: `Current load is ${kw.toFixed(2)} kW. Consider turning off heavy appliances.`,
+        created_at: nowISO,
+        read: false,
+      });
+    }
+
+    if (newAlerts.length) upsertAlerts(newAlerts);
+  }, [devices.length, latest, selectedId]);
+
+  const isOffline = latestIsOffline(latest, 120);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <Navbar />
-
-      <div className="p-6">
-        <div className="max-w-5xl mx-auto">
-          {/* Status + Device selector */}
-          <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <div className="text-sm text-slate-600">Status</div>
-              <div className="font-semibold">{status}</div>
-              <div className="text-xs text-slate-500 mt-1">
-                {headerDeviceText}
-                {today ? (
-                  <> • Today: {today.date} • Tariff: {today.tariff_pkr_per_kwh || 0} PKR/kWh</>
-                ) : (
-                  <> • Today totals: loading…</>
-                )}
-              </div>
-            </div>
-
-            <div className="w-full md:w-80">
-              <div className="text-sm text-slate-600">Device</div>
-              <select
-                className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-                value={selectedId}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setSelectedId(v === "all" ? "all" : Number(v));
-                }}
-                disabled={devices.length === 0}
-              >
-                <option value="all">Home (All devices)</option>
-                {devices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} {d.room ? `(${d.room})` : ""}
-                  </option>
-                ))}
-              </select>
+    <AppShell title="Dashboard">
+      {/* Device selector */}
+      <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm text-slate-600">Status</div>
+            <div className="font-semibold">{statusText}</div>
+            <div className="text-xs text-slate-500 mt-1">
+              {today ? (
+                <>Today: {today.date} • Tariff: {today.tariff_pkr_per_kwh || 0} PKR/kWh</>
+              ) : (
+                <>Today totals: loading…</>
+              )}
             </div>
           </div>
 
-          {/* Cards */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <Card
-              icon={<Gauge className="h-5 w-5" />}
-              label="Voltage"
-              value={latest ? `${latest.voltage.toFixed(1)} V` : "--"}
-              badge={liveOk ? "Live" : undefined}
-            />
-            <Card
-              icon={<Activity className="h-5 w-5" />}
-              label="Current"
-              value={latest ? `${latest.current.toFixed(2)} A` : "--"}
-              badge={liveOk ? "Live" : undefined}
-            />
-            <Card
-              icon={<Zap className="h-5 w-5" />}
-              label="Power"
-              value={latest ? `${latest.power.toFixed(1)} W` : "--"}
-              badge={liveOk ? "Live" : undefined}
-            />
-
-            <Card
-              icon={<Zap className="h-5 w-5" />}
-              label={totalsLabel}
-              value={formatKwh(totalsKwh)}
-              hint={totalsHint}
-            />
-            <Card
-              icon={<Wallet className="h-5 w-5" />}
-              label={costLabel}
-              value={formatPkr(totalsCost)}
-              hint={costHint}
-            />
-          </div>
-
-          {/* Chart */}
-          <div className="mt-6">
-            <div className="flex justify-end mb-3">
-              <button
-                onClick={() => nav("/monitoring")}
-                className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm hover:bg-slate-800"
-                type="button"
-              >
-                Live Monitoring
-              </button>
-            </div>
-
-            <PowerUsageChart readings={range} rangeKey={rangeKey} onRangeChange={setRangeKey} />
+          <div className="w-full sm:w-96">
+            <div className="text-sm text-slate-600">Device</div>
+            <select
+              className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
+              value={selectedId}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedId(v === "home" ? "home" : Number(v));
+              }}
+              disabled={!devices.length}
+            >
+              <option value="home">Home Total</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} {d.room ? `(${d.room})` : ""}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-function Card({
-  icon,
-  label,
-  value,
-  hint,
-  badge,
-}: {
-  icon?: React.ReactNode;
-  label: string;
-  value: string;
-  hint?: string;
-  badge?: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 shadow-sm">
-      <div className="text-sm text-slate-600 flex items-center gap-2">
-        {icon ? <span className="text-slate-500">{icon}</span> : null}
-        <span>{label}</span>
+      {/* Cards */}
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <StatCard
+          title="Usage"
+          value={latest ? formatKwFromWatts(latest.power) : "--"}
+          subValue={`Today: ${formatKwh(todayKwh)} kWh`}
+          icon={<Zap className="h-5 w-5" />}
+        />
+
+        <StatCard
+          title="Cost"
+          value={formatPkr(todayCost)}
+          subValue={today ? `Tariff: ${today.tariff_pkr_per_kwh || 0} PKR/kWh` : "—"}
+          icon={<Wallet className="h-5 w-5" />}
+        />
+
+        <StatCard
+          title="Connection"
+          value={isOffline ? "Offline" : "Online"}
+          subValue={
+            selectedId === "home"
+              ? "Home live status"
+              : selectedDevice
+                ? selectedDevice.name
+                : "Selected device"
+          }
+          icon={<Wifi className="h-5 w-5" />}
+        />
       </div>
 
-      <div className="mt-2 text-2xl font-semibold tabular-nums">{value}</div>
-
-      {badge ? (
-        <div className="mt-2 inline-flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          <span className="text-xs font-medium text-emerald-600">{badge}</span>
-        </div>
-      ) : hint ? (
-        <div className="mt-2 text-xs text-slate-500">{hint}</div>
-      ) : null}
-    </div>
+      {/* Chart */}
+      <div className="mt-5">
+        <UsageChart
+          range={range}
+          onRangeChange={setRange}
+          readings={rangeData}
+          title="Energy Usage"
+          subtitle={selectedId === "home" ? "Home Total" : selectedDevice ? selectedDevice.name : "—"}
+          rightAction={
+            <button
+              type="button"
+              onClick={() => nav("/monitoring")}
+              className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm hover:bg-slate-800"
+            >
+              Live Monitoring
+            </button>
+          }
+        />
+      </div>
+    </AppShell>
   );
 }

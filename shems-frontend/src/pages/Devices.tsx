@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createDevice, deleteDevice, listDevices, type Device, clearTokens } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import Navbar from "../components/Navbar";
+import AppShell from "../components/AppShell";
 
 export default function DevicesPage() {
   const nav = useNavigate();
@@ -68,8 +68,8 @@ export default function DevicesPage() {
   }
 
   return (
+    <AppShell title="Devices">
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <Navbar />
 
       <div className="p-6">
         <div className="max-w-5xl mx-auto">
@@ -182,5 +182,6 @@ export default function DevicesPage() {
         </div>
       </div>
     </div>
+    </AppShell>
   );
 }
