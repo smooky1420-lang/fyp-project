@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
-import { getUserSettings, updateUserSettings } from "../lib/api";
+import { getUserSettings, updateUserSettings, getSolarConfig, updateSolarConfig } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 import { Save, Loader2 } from "lucide-react";
 
@@ -13,6 +13,14 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Solar settings
+  const [solarEnabled, setSolarEnabled] = useState(false);
+  const [solarCapacity, setSolarCapacity] = useState<string>("");
+  const [latitude, setLatitude] = useState<string>("");
+  const [longitude, setLongitude] = useState<string>("");
+  const [savingSolar, setSavingSolar] = useState(false);
+  const [solarMsg, setSolarMsg] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -27,11 +35,43 @@ export default function Settings() {
     })();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const solar = await getSolarConfig();
+        setSolarEnabled(solar.enabled);
+        setSolarCapacity(String(solar.installed_capacity_kw || ""));
+        setLatitude(solar.latitude !== null ? String(solar.latitude) : "");
+        setLongitude(solar.longitude !== null ? String(solar.longitude) : "");
+      } catch (err: unknown) {
+        setSolarMsg(getErrorMessage(err) || "Failed to load solar settings");
+      }
+    })();
+  }, []);
+
   const parsedTariff = useMemo(() => {
     const n = Number(tariff);
     if (!Number.isFinite(n)) return null;
     return clamp(n, 0, 500);
   }, [tariff]);
+
+  const parsedSolarCapacity = useMemo(() => {
+    const n = Number(solarCapacity);
+    if (!Number.isFinite(n)) return null;
+    return clamp(n, 0, 1000);
+  }, [solarCapacity]);
+
+  const parsedLatitude = useMemo(() => {
+    const n = Number(latitude);
+    if (!Number.isFinite(n)) return null;
+    return clamp(n, -90, 90);
+  }, [latitude]);
+
+  const parsedLongitude = useMemo(() => {
+    const n = Number(longitude);
+    if (!Number.isFinite(n)) return null;
+    return clamp(n, -180, 180);
+  }, [longitude]);
 
   async function onSave() {
     setMsg(null);
@@ -49,6 +89,37 @@ export default function Settings() {
       setMsg(getErrorMessage(err) || "Failed to save settings");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onSaveSolar() {
+    setSolarMsg(null);
+    
+    if (solarEnabled) {
+      if (parsedSolarCapacity === null || parsedSolarCapacity <= 0) {
+        setSolarMsg("Please enter a valid solar capacity (greater than 0).");
+        return;
+      }
+      if (parsedLatitude === null || parsedLongitude === null) {
+        setSolarMsg("Please enter valid latitude and longitude.");
+        return;
+      }
+    }
+
+    setSavingSolar(true);
+    try {
+      await updateSolarConfig({
+        enabled: solarEnabled,
+        installed_capacity_kw: solarEnabled ? (parsedSolarCapacity || 0) : 0,
+        latitude: solarEnabled ? (parsedLatitude !== null ? parsedLatitude : null) : null,
+        longitude: solarEnabled ? (parsedLongitude !== null ? parsedLongitude : null) : null,
+      });
+      setSolarMsg("Saved ✓");
+      setTimeout(() => setSolarMsg(null), 2000);
+    } catch (err: unknown) {
+      setSolarMsg(getErrorMessage(err) || "Failed to save solar settings");
+    } finally {
+      setSavingSolar(false);
     }
   }
 
@@ -123,6 +194,108 @@ export default function Settings() {
           {loading ? (
             <div className="mt-4 text-sm text-slate-600">Loading settings…</div>
           ) : null}
+
+          {/* Solar Configuration */}
+          <div className="mt-6 rounded-2xl bg-white ring-1 ring-slate-200 p-5 shadow-sm">
+            <div className="font-semibold">Solar Configuration</div>
+            <div className="text-sm text-slate-600 mt-1">
+              Configure your solar panel system for energy tracking
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="solar-enabled"
+                checked={solarEnabled}
+                onChange={(e) => setSolarEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <label htmlFor="solar-enabled" className="text-sm font-medium text-slate-700">
+                Enable Solar Tracking
+              </label>
+            </div>
+
+            {solarEnabled && (
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-sm text-slate-600">Solar Capacity (kW)</label>
+                  <input
+                    className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
+                    placeholder="e.g. 5.0"
+                    value={solarCapacity}
+                    onChange={(e) => setSolarCapacity(e.target.value)}
+                    inputMode="decimal"
+                    disabled={loading}
+                  />
+                  <div className="mt-2 text-xs text-slate-500">
+                    Total installed solar panel capacity
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm text-slate-600">Latitude</label>
+                  <input
+                    className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
+                    placeholder="e.g. 33.6844"
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    inputMode="decimal"
+                    disabled={loading}
+                  />
+                  <div className="mt-2 text-xs text-slate-500">
+                    Your location latitude (-90 to 90)
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm text-slate-600">Longitude</label>
+                  <input
+                    className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
+                    placeholder="e.g. 73.0479"
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    inputMode="decimal"
+                    disabled={loading}
+                  />
+                  <div className="mt-2 text-xs text-slate-500">
+                    Your location longitude (-180 to 180)
+                  </div>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
+                  <div className="text-sm font-semibold">Preview</div>
+                  <div className="mt-2 text-sm text-slate-700">
+                    Capacity:{" "}
+                    <span className="font-semibold tabular-nums">
+                      {parsedSolarCapacity === null ? "--" : `${parsedSolarCapacity} kW`}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-700">
+                    Location:{" "}
+                    <span className="font-semibold tabular-nums">
+                      {parsedLatitude !== null && parsedLongitude !== null
+                        ? `${parsedLatitude.toFixed(4)}, ${parsedLongitude.toFixed(4)}`
+                        : "--"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onSaveSolar}
+                disabled={loading || savingSolar}
+                className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-500 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                {savingSolar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Solar Settings
+              </button>
+
+              {solarMsg ? <div className="text-sm text-slate-700">{solarMsg}</div> : null}
+            </div>
+          </div>
         </div>
       </div>
     </div>

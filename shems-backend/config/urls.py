@@ -24,6 +24,8 @@ urlpatterns = [
     path("api/", include("telemetry.urls")),  # <-- add this
     path("api/telemetry/", include("telemetry.urls")),
     path("api/settings/", include("user_settings.urls")),
+    path("api/solar/", include("solar.urls")),
+
     
 ]
 

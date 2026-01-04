@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { clearTokens } from "../lib/api";
-import { LayoutDashboard, Cpu, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Cpu, Settings, LogOut, Sun } from "lucide-react";
 
 type Props = {
   title?: string;
@@ -49,6 +49,7 @@ export default function Navbar({ title = "SHEMS" }: Props) {
           <div className="flex items-center gap-2">
             <Item to="/dashboard" label="Dashboard" icon={<LayoutDashboard className="h-4 w-4" />} />
             <Item to="/devices" label="Devices" icon={<Cpu className="h-4 w-4" />} />
+            <Item to="/solar" label="Solar" icon={<Sun className="h-4 w-4" />} />
             <Item to="/settings" label="Settings" icon={<Settings className="h-4 w-4" />} />
 
             <button

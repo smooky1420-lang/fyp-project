@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
-
+import os
 from pathlib import Path
 from datetime import timedelta
 
@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "devices",
     "telemetry",
     "user_settings",
+    "solar",
 
 ]
 
@@ -149,3 +150,4 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")

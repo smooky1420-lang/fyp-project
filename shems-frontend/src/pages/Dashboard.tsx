@@ -16,9 +16,11 @@ import {
   getTodaySummary,
   type TodaySummary,
   type TodaySummaryDevice,
+  getSolarStatus,
+  type SolarStatus,
 } from "../lib/api";
 
-import { Zap, Wallet, Wifi } from "lucide-react";
+import { Zap, Wallet, Wifi, Sun } from "lucide-react";
 
 function isoFromDaysAgo(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60_000).toISOString();
@@ -70,6 +72,7 @@ export default function Dashboard() {
   const [latest, setLatest] = useState<TelemetryReading | null>(null);
   const [rangeData, setRangeData] = useState<TelemetryReading[] | TelemetryReading[][]>([]);
   const [today, setToday] = useState<TodaySummary | null>(null);
+  const [solarStatus, setSolarStatus] = useState<SolarStatus | null>(null);
 
   const [range, setRange] = useState<ChartRange>("day");
   const [statusText, setStatusText] = useState("Loading...");
@@ -119,6 +122,34 @@ export default function Dashboard() {
 
     poll();
     const t = setInterval(poll, 30_000);
+
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // Poll solar status
+  useEffect(() => {
+    let alive = true;
+
+    async function pollSolar() {
+      try {
+        const status = await getSolarStatus();
+        if (!alive) return;
+        if (status.enabled) {
+          setSolarStatus(status);
+        } else {
+          setSolarStatus(null);
+        }
+      } catch {
+        if (!alive) return;
+        setSolarStatus(null);
+      }
+    }
+
+    pollSolar();
+    const t = setInterval(pollSolar, 30_000);
 
     return () => {
       alive = false;
@@ -307,7 +338,7 @@ export default function Dashboard() {
       </div>
 
       {/* Cards */}
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
+      <div className={`mt-5 grid gap-4 ${solarStatus ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
         <StatCard
           title="Usage"
           value={latest ? formatKwFromWatts(latest.power) : "--"}
@@ -321,6 +352,25 @@ export default function Dashboard() {
           subValue={today ? `Tariff: ${today.tariff_pkr_per_kwh || 0} PKR/kWh` : "—"}
           icon={<Wallet className="h-5 w-5" />}
         />
+
+        {solarStatus && (
+          <button
+            type="button"
+            onClick={() => nav("/solar")}
+            className="text-left rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 hover:ring-indigo-500 hover:ring-2 transition-all"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-slate-600">Solar</div>
+              <div className="text-slate-500"><Sun className="h-5 w-5" /></div>
+            </div>
+            <div className="mt-2 text-2xl font-semibold tabular-nums">
+              {solarStatus.solar_kw.toFixed(2)} kW
+            </div>
+            <div className="mt-2 text-xs text-slate-500 tabular-nums">
+              Savings: {formatPkr(solarStatus.savings_today_pkr)}
+            </div>
+          </button>
+        )}
 
         <StatCard
           title="Connection"

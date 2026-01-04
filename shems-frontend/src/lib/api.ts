@@ -207,3 +207,59 @@ export async function updateUserSettings(input: { tariff_pkr_per_kwh: number }):
     body: JSON.stringify(input),
   });
 }
+
+// Solar API
+export type SolarConfig = {
+  enabled: boolean;
+  installed_capacity_kw: number;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+export type SolarStatus = {
+  enabled: boolean;
+  solar_kw: number;
+  home_kw: number;
+  grid_import_kw: number;
+  savings_today_pkr: number;
+  cloud_cover: number;
+  source: string;
+};
+
+export type SolarHistoryPoint = {
+  timestamp: string;
+  solar_kw: number;
+  home_kw: number;
+  grid_import_kw: number;
+};
+
+export async function getSolarConfig(): Promise<SolarConfig> {
+  return authFetch<SolarConfig>("/api/solar/config/", { method: "GET" });
+}
+
+export async function updateSolarConfig(input: {
+  enabled: boolean;
+  installed_capacity_kw: number;
+  latitude: number | null;
+  longitude: number | null;
+}): Promise<{ status: string }> {
+  return authFetch<{ status: string }>("/api/solar/config/", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getSolarStatus(): Promise<SolarStatus> {
+  return authFetch<SolarStatus>("/api/solar/status/", { method: "GET" });
+}
+
+export async function getSolarHistory(
+  from?: string,
+  to?: string,
+  limit = 200
+): Promise<SolarHistoryPoint[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  return authFetch<SolarHistoryPoint[]>(`/api/solar/history/?${params.toString()}`, { method: "GET" });
+}
