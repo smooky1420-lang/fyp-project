@@ -9,6 +9,8 @@ import {
   LogOut,
   AlertCircle,
   Sun,
+  FileText,
+  Sparkles,
 } from "lucide-react";
 import { clearTokens } from "../lib/api";
 import { useEffect, useState } from "react";
@@ -46,6 +48,8 @@ function pageTitleFromPath(pathname: string) {
   if (pathname.startsWith("/settings")) return "Settings";
   if (pathname.startsWith("/alerts")) return "Alerts";
   if (pathname.startsWith("/solar")) return "Solar";
+  if (pathname.startsWith("/reports")) return "Reports";
+  if (pathname.startsWith("/predictions")) return "AI Predictions";
   return "SHEMS";
 }
 
@@ -98,6 +102,8 @@ export default function AppShell({
             <SideItem to="/devices" label="Devices" icon={<Cpu className="h-5 w-5" />} />
             <SideItem to="/solar" label="Solar" icon={<Sun className="h-5 w-5" />} />
             <SideItem to="/monitoring" label="Monitoring" icon={<Activity className="h-5 w-5" />} />
+            <SideItem to="/reports" label="Reports" icon={<FileText className="h-5 w-5" />} />
+            <SideItem to="/predictions" label="AI Predictions" icon={<Sparkles className="h-5 w-5" />} />
             <SideItem to="/alerts" label="Alerts" icon={<AlertCircle className="h-5 w-5" />} />
             <SideItem to="/settings" label="Settings" icon={<Settings className="h-5 w-5" />} />
           </nav>

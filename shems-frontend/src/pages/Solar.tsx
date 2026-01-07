@@ -26,6 +26,29 @@ function isoFromDaysAgo(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60_000).toISOString();
 }
 
+async function getLocationName(lat: number, lon: number): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
+      { headers: { "User-Agent": "SHEMS" } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const addr = data.address;
+    if (!addr) return null;
+    
+    // Build location name from address components
+    const parts: string[] = [];
+    if (addr.city || addr.town || addr.village) parts.push(addr.city || addr.town || addr.village);
+    if (addr.state || addr.region) parts.push(addr.state || addr.region);
+    if (addr.country) parts.push(addr.country);
+    
+    return parts.length > 0 ? parts.join(", ") : data.display_name || null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Solar() {
   const nav = useNavigate();
   const [solarStatus, setSolarStatus] = useState<SolarStatus | null>(null);
@@ -34,6 +57,7 @@ export default function Solar() {
   const [chartRange, setChartRange] = useState<ChartRange>("day");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [locationName, setLocationName] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -115,6 +139,23 @@ export default function Solar() {
       clearInterval(t);
     };
   }, [solarConfig?.enabled, chartRange]);
+
+  // Fetch location name from coordinates
+  useEffect(() => {
+    if (!solarConfig?.latitude || !solarConfig?.longitude) {
+      setLocationName(null);
+      return;
+    }
+
+    let alive = true;
+    getLocationName(solarConfig.latitude, solarConfig.longitude).then((name) => {
+      if (alive) setLocationName(name);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [solarConfig?.latitude, solarConfig?.longitude]);
 
   if (loading) {
     return (
@@ -235,8 +276,8 @@ export default function Solar() {
                         <MapPin className="h-3 w-3" />
                         Location
                       </span>
-                      <span className="font-semibold tabular-nums text-xs">
-                        {solarConfig.latitude.toFixed(4)}, {solarConfig.longitude.toFixed(4)}
+                      <span className="font-semibold text-xs text-right max-w-[60%]">
+                        {locationName || `${solarConfig.latitude.toFixed(4)}, ${solarConfig.longitude.toFixed(4)}`}
                       </span>
                     </div>
                   )}

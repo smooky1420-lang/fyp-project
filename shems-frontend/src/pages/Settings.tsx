@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import AppShell from "../components/AppShell";
-import { getUserSettings, updateUserSettings, getSolarConfig, updateSolarConfig } from "../lib/api";
+import { getUserSettings, updateUserSettings, getSolarConfig, updateSolarConfig, getTariffCalculator, type TariffCalculatorResult } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
-import { Save, Loader2 } from "lucide-react";
+import { Save, Loader2, MapPin, Calculator, Shield, ShieldOff } from "lucide-react";
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -21,6 +21,12 @@ export default function Settings() {
   const [longitude, setLongitude] = useState<string>("");
   const [savingSolar, setSavingSolar] = useState(false);
   const [solarMsg, setSolarMsg] = useState<string | null>(null);
+  const [fetchingLocation, setFetchingLocation] = useState(false);
+  
+  // Tariff calculator
+  const [tariffCalc, setTariffCalc] = useState<TariffCalculatorResult | null>(null);
+  const [loadingTariffCalc, setLoadingTariffCalc] = useState(false);
+  const [useCalculatedTariff, setUseCalculatedTariff] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -31,6 +37,21 @@ export default function Settings() {
         setMsg(getErrorMessage(err) || "Failed to load settings");
       } finally {
         setLoading(false);
+      }
+    })();
+  }, []);
+
+  // Load tariff calculator
+  useEffect(() => {
+    (async () => {
+      setLoadingTariffCalc(true);
+      try {
+        const calc = await getTariffCalculator();
+        setTariffCalc(calc);
+      } catch (err: unknown) {
+        console.error("Failed to load tariff calculator:", err);
+      } finally {
+        setLoadingTariffCalc(false);
       }
     })();
   }, []);
@@ -92,6 +113,37 @@ export default function Settings() {
     }
   }
 
+  async function onFetchLocation() {
+    if (!navigator.geolocation) {
+      setSolarMsg("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    setFetchingLocation(true);
+    setSolarMsg(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(String(position.coords.latitude));
+        setLongitude(String(position.coords.longitude));
+        setSolarMsg("Location fetched ✓");
+        setTimeout(() => setSolarMsg(null), 2000);
+        setFetchingLocation(false);
+      },
+      (error) => {
+        setFetchingLocation(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          setSolarMsg("Location access denied. Please enter coordinates manually.");
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          setSolarMsg("Location unavailable. Please enter coordinates manually.");
+        } else {
+          setSolarMsg("Failed to get location. Please enter coordinates manually.");
+        }
+      },
+      { timeout: 10000 }
+    );
+  }
+
   async function onSaveSolar() {
     setSolarMsg(null);
     
@@ -140,7 +192,67 @@ export default function Settings() {
 
           <div className="mt-6 rounded-2xl bg-white ring-1 ring-slate-200 p-5 shadow-sm">
             <div className="font-semibold">Electricity Tariff</div>
-            <div className="text-sm text-slate-600 mt-1">PKR per kWh</div>
+            <div className="text-sm text-slate-600 mt-1">PKR per kWh - Auto-calculated based on your usage</div>
+
+            {/* Tariff Calculator Info */}
+            {tariffCalc && (
+              <div className="mt-4 rounded-xl bg-indigo-50 ring-1 ring-indigo-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calculator className="h-4 w-4 text-indigo-600" />
+                      <span className="text-sm font-semibold text-indigo-900">Calculated Tariff</span>
+                      {tariffCalc.is_protected !== null && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-indigo-100 text-indigo-700">
+                          {tariffCalc.is_protected ? (
+                            <>
+                              <Shield className="h-3 w-3" />
+                              Protected
+                            </>
+                          ) : (
+                            <>
+                              <ShieldOff className="h-3 w-3" />
+                              Unprotected
+                            </>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    {tariffCalc.calculated_tariff !== null ? (
+                      <div className="text-sm text-indigo-800">
+                        <div>
+                          Current month: <span className="font-semibold">{tariffCalc.current_month_units.toFixed(2)} units</span>
+                        </div>
+                        <div className="mt-1">
+                          Calculated rate: <span className="font-semibold">{tariffCalc.calculated_tariff.toFixed(2)} PKR/kWh</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTariff(String(tariffCalc.calculated_tariff));
+                            setUseCalculatedTariff(true);
+                          }}
+                          className="mt-2 text-xs text-indigo-600 hover:text-indigo-700 font-medium underline"
+                        >
+                          Use this tariff
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-indigo-700">
+                        {tariffCalc.message || "Unable to calculate tariff"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {loadingTariffCalc && (
+              <div className="mt-4 text-sm text-slate-600 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Calculating tariff...
+              </div>
+            )}
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
@@ -149,7 +261,10 @@ export default function Settings() {
                   className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
                   placeholder="e.g. 60"
                   value={tariff}
-                  onChange={(e) => setTariff(e.target.value)}
+                  onChange={(e) => {
+                    setTariff(e.target.value);
+                    setUseCalculatedTariff(false);
+                  }}
                   inputMode="decimal"
                   disabled={loading}
                 />
@@ -157,6 +272,11 @@ export default function Settings() {
                 <div className="mt-2 text-xs text-slate-500">
                   Used for cost calculation in Dashboard: <span className="font-medium">cost = kWh × tariff</span>
                 </div>
+                {useCalculatedTariff && tariffCalc?.calculated_tariff !== null && (
+                  <div className="mt-1 text-xs text-indigo-600">
+                    Using calculated tariff
+                  </div>
+                )}
               </div>
 
               <div className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 p-4">
@@ -175,6 +295,23 @@ export default function Settings() {
                 </div>
               </div>
             </div>
+
+            {/* Monthly Usage History */}
+            {tariffCalc && tariffCalc.monthly_usage.length > 0 && (
+              <div className="mt-4 rounded-xl bg-slate-50 ring-1 ring-slate-200 p-4">
+                <div className="text-xs font-semibold text-slate-700 mb-2">Last 6 Months Usage</div>
+                <div className="space-y-1">
+                  {tariffCalc.monthly_usage.map((month, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs">
+                      <span className="text-slate-600">{month.month}</span>
+                      <span className={`font-semibold ${month.kwh >= 200 ? "text-red-600" : "text-slate-700"}`}>
+                        {month.kwh.toFixed(2)} units
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 flex items-center gap-3">
               <button
@@ -233,32 +370,51 @@ export default function Settings() {
                 </div>
 
                 <div>
-                  <label className="text-sm text-slate-600">Latitude</label>
-                  <input
-                    className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
-                    placeholder="e.g. 33.6844"
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    inputMode="decimal"
-                    disabled={loading}
-                  />
-                  <div className="mt-2 text-xs text-slate-500">
-                    Your location latitude (-90 to 90)
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-sm text-slate-600">Location</label>
+                    <button
+                      type="button"
+                      onClick={onFetchLocation}
+                      disabled={fetchingLocation || loading}
+                      className="text-xs text-indigo-600 hover:text-indigo-700 font-medium inline-flex items-center gap-1 disabled:opacity-50"
+                    >
+                      {fetchingLocation ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Fetching...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="h-3 w-3" />
+                          Get My Location
+                        </>
+                      )}
+                    </button>
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-sm text-slate-600">Longitude</label>
-                  <input
-                    className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50"
-                    placeholder="e.g. 73.0479"
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    inputMode="decimal"
-                    disabled={loading}
-                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <input
+                        className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 text-sm"
+                        placeholder="Latitude"
+                        value={latitude}
+                        onChange={(e) => setLatitude(e.target.value)}
+                        inputMode="decimal"
+                        disabled={loading}
+                      />
+                    </div>
+                    <div>
+                      <input
+                        className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 text-sm"
+                        placeholder="Longitude"
+                        value={longitude}
+                        onChange={(e) => setLongitude(e.target.value)}
+                        inputMode="decimal"
+                        disabled={loading}
+                      />
+                    </div>
+                  </div>
                   <div className="mt-2 text-xs text-slate-500">
-                    Your location longitude (-180 to 180)
+                    Click "Get My Location" or enter manually
                   </div>
                 </div>
 

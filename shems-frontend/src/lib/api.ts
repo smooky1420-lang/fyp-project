@@ -208,6 +208,48 @@ export async function updateUserSettings(input: { tariff_pkr_per_kwh: number }):
   });
 }
 
+export type TariffCalculatorResult = {
+  calculated_tariff: number | null;
+  is_protected: boolean | null;
+  current_month_units: number;
+  monthly_usage: Array<{ month: string; kwh: number }>;
+  message: string | null;
+};
+
+export async function getTariffCalculator(): Promise<TariffCalculatorResult> {
+  return authFetch<TariffCalculatorResult>("/api/settings/tariff-calculator/", { method: "GET" });
+}
+
+export type MonthlyReport = {
+  month: string;
+  month_name: string;
+  kwh: number;
+  cost_pkr: number;
+};
+
+export type DeviceBreakdown = {
+  device_id: number;
+  name: string;
+  room: string;
+  kwh: number;
+  cost_pkr: number;
+};
+
+export type MonthlyReportsResult = {
+  monthly_reports: MonthlyReport[];
+  total_kwh: number;
+  total_cost_pkr: number;
+  average_monthly_kwh: number;
+  average_monthly_cost: number;
+  device_breakdown: DeviceBreakdown[];
+  solar_kwh: number;
+  grid_kwh: number;
+};
+
+export async function getMonthlyReports(): Promise<MonthlyReportsResult> {
+  return authFetch<MonthlyReportsResult>("/api/settings/monthly-reports/", { method: "GET" });
+}
+
 // Solar API
 export type SolarConfig = {
   enabled: boolean;

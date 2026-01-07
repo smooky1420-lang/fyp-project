@@ -7,6 +7,8 @@ import Monitoring from "./pages/Monitoring";
 import Settings from "./pages/Settings";
 import AlertsPage from "./pages/Alerts";
 import Solar from "./pages/Solar";
+import Reports from "./pages/Reports";
+import Predictions from "./pages/Predictions";
 
 
 
@@ -22,6 +24,8 @@ export default function App() {
       <Route path="/settings" element={<Settings />} />
       <Route path="/alerts" element={<AlertsPage />} />
       <Route path="/solar" element={<Solar />} />
+      <Route path="/reports" element={<Reports />} />
+      <Route path="/predictions" element={<Predictions />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );

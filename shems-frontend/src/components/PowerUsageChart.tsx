@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -127,8 +129,8 @@ function CustomTooltip({
   const val = typeof p.kw === "number" && Number.isFinite(p.kw) ? p.kw : null;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <div className="text-xs text-slate-500 tabular-nums">{fmtTooltipTime(p.iso)}</div>
+    <div className="rounded-xl bg-white ring-1 ring-slate-200 shadow-lg p-3">
+      <div className="text-xs text-slate-500 tabular-nums mb-1">{fmtTooltipTime(p.iso)}</div>
       <div className="text-sm font-semibold text-slate-900 tabular-nums">
         {val !== null ? `${val.toFixed(2)} kW` : "No data"}
       </div>
@@ -136,7 +138,7 @@ function CustomTooltip({
   );
 }
 
-function SmallButton({
+function Toggle({
   active,
   onClick,
   children,
@@ -149,10 +151,10 @@ function SmallButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm ring-1 ${
+      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
         active
-          ? "bg-emerald-500 text-white ring-emerald-500"
-          : "bg-slate-100 text-slate-700 ring-slate-100 hover:bg-slate-200"
+          ? "bg-indigo-600 text-white"
+          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
       }`}
     >
       {children}
@@ -184,44 +186,66 @@ export default function PowerUsageChart({
 }: Props) {
   const points = buildFixedPowerSeries(readings, rangeKey);
 
+  const maxKw = useMemo(() => {
+    const values = points.map((p) => p.kw).filter((v) => Number.isFinite(v));
+    return values.length > 0 ? Math.max(...values) : 0;
+  }, [points]);
+
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-slate-200 p-5 shadow-sm">
+    <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="font-semibold">{title}</div>
-          {subtitle ? <div className="text-sm text-slate-600">{subtitle}</div> : null}
+          <div className="text-sm text-slate-600">
+            {subtitle ? `${subtitle} • ` : ""}
+            <span className="font-medium text-slate-700">Power (kW)</span>
+          </div>
         </div>
 
         {onRangeChange ? (
           <div className="flex gap-2">
-            <SmallButton active={rangeKey === "1h"} onClick={() => onRangeChange("1h")}>
+            <Toggle active={rangeKey === "1h"} onClick={() => onRangeChange("1h")}>
               Last 1h
-            </SmallButton>
-            <SmallButton active={rangeKey === "24h"} onClick={() => onRangeChange("24h")}>
+            </Toggle>
+            <Toggle active={rangeKey === "24h"} onClick={() => onRangeChange("24h")}>
               Last 24h
-            </SmallButton>
+            </Toggle>
           </div>
         ) : null}
       </div>
 
       <div className={`mt-4 ${heightClassName}`}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical horizontal />
+          <LineChart data={points} margin={{ top: 10, right: 15, left: 10, bottom: 0 }}>
+            <defs>
+              <linearGradient id="kwFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#22c55e" stopOpacity={0.4} />
+                <stop offset="70%" stopColor="#22c55e" stopOpacity={0.12} />
+                <stop offset="100%" stopColor="#22c55e" stopOpacity={0.02} />
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                <feMerge>
+                  <feMergeNode in="coloredBlur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
             <XAxis
               dataKey="x"
               tickLine={false}
-              axisLine={{ stroke: "#e2e8f0" }}
+              axisLine={false}
               tick={{ fill: "#64748b", fontSize: 12 }}
-              interval={0} // show ALL ticks (0m..60m or 0h..24h)
+              interval={0}
             />
 
             <YAxis
-              width={40}
               tickLine={false}
-              axisLine={{ stroke: "#e2e8f0" }}
-              domain={[0, "auto"]}
+              axisLine={false}
+              domain={[0, Math.max(0.01, maxKw * 1.2)]}
               tick={{ fill: "#64748b", fontSize: 12 }}
               tickFormatter={(v: number) => v.toFixed(1)}
               label={{ value: "kW", angle: -90, position: "insideLeft", fill: "#64748b" }}
@@ -229,15 +253,28 @@ export default function PowerUsageChart({
 
             <Tooltip content={<CustomTooltip />} />
 
+            <Area
+              type="monotone"
+              dataKey="kw"
+              stroke="none"
+              fill="url(#kwFill)"
+              isAnimationActive={false}
+            />
+
             <Line
               type="monotone"
               dataKey="kw"
               stroke="#22c55e"
               strokeWidth={2.5}
-              dot={true}
-              activeDot={{ stroke: "#22c55e", r: 4 }}
+              filter="url(#glow)"
+              dot={false}
+              activeDot={{
+                r: 4,
+                stroke: "#22c55e",
+                strokeWidth: 1,
+                fill: "#ffffff",
+              }}
               connectNulls={false}
-              isAnimationActive
             />
           </LineChart>
         </ResponsiveContainer>

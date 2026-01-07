@@ -9,6 +9,6 @@ class UserSettingsSerializer(serializers.ModelSerializer):
     def validate_tariff_pkr_per_kwh(self, value):
         if value < 0:
             raise serializers.ValidationError("Tariff cannot be negative.")
-        if value > 500:
+        if value > 50:
             raise serializers.ValidationError("Tariff is too high.")
         return value

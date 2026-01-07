@@ -1,3 +1,4 @@
+from datetime import timedelta
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.views import APIView
@@ -6,7 +7,7 @@ from rest_framework.response import Response
 
 from telemetry.models import TelemetryReading
 from user_settings.models import UserSettings
-from .models import SolarConfig, WeatherCache
+from .models import SolarConfig, WeatherCache, SolarGeneration
 from .weather_service import get_weather
 from .solar_service import estimate_solar_kw
 
@@ -70,6 +71,28 @@ class SolarStatusAPI(APIView):
 
         savings_today = round(min(home_kw, solar_kw) * tariff, 2)
 
+        # Store historical data - store every time to ensure we have accurate history
+        # Check if we already stored data in the last 5 minutes to avoid duplicates
+        recent = SolarGeneration.objects.filter(
+            user=request.user,
+            created_at__gte=timezone.now() - timedelta(minutes=5)
+        ).first()
+        
+        if not recent:
+            try:
+                SolarGeneration.objects.create(
+                    user=request.user,
+                    solar_kw=solar_kw,
+                    home_kw=home_kw,
+                    grid_import_kw=grid_import_kw,
+                    cloud_cover=weather.cloud_cover,
+                )
+            except Exception as e:
+                # Log error but don't fail the request
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to store solar generation: {e}")
+
         return Response({
             "enabled": True,
             "solar_kw": solar_kw,
@@ -96,11 +119,8 @@ class SolarHistoryAPI(APIView):
         if not cfg:
             return Response({"detail": "Solar not enabled."}, status=400)
 
-        # Get weather cache (or fetch if needed)
-        weather = get_weather(cfg.latitude, cfg.longitude)
-
-        # Get telemetry readings for the user's devices
-        qs = TelemetryReading.objects.filter(device__user=request.user).order_by("-created_at")
+        # Get stored solar generation data
+        qs = SolarGeneration.objects.filter(user=request.user).order_by("-created_at")
 
         dt_from = request.query_params.get("from")
         dt_to = request.query_params.get("to")
@@ -122,10 +142,39 @@ class SolarHistoryAPI(APIView):
         except ValueError:
             return Response({"detail": "Invalid limit."}, status=400)
 
-        readings = list(qs[:limit])
-        readings.reverse()  # ascending time
+        stored_data = list(qs[:limit])
+        stored_data.reverse()  # ascending time
 
-        # Calculate solar generation for each reading
+        # If we have stored data, use it
+        if stored_data:
+            history = []
+            for gen in stored_data:
+                history.append({
+                    "timestamp": gen.created_at.isoformat(),
+                    "solar_kw": gen.solar_kw,
+                    "home_kw": gen.home_kw,
+                    "grid_import_kw": gen.grid_import_kw,
+                })
+            return Response(history)
+
+        # Fallback: calculate from telemetry if no stored data exists yet
+        # This helps during initial setup before data is stored
+        weather = get_weather(cfg.latitude, cfg.longitude)
+        qs_telemetry = TelemetryReading.objects.filter(device__user=request.user).order_by("-created_at")
+
+        if dt_from:
+            d = parse_datetime(dt_from)
+            if d:
+                qs_telemetry = qs_telemetry.filter(created_at__gte=d)
+
+        if dt_to:
+            d = parse_datetime(dt_to)
+            if d:
+                qs_telemetry = qs_telemetry.filter(created_at__lte=d)
+
+        readings = list(qs_telemetry[:limit])
+        readings.reverse()
+
         history = []
         for reading in readings:
             reading_time = reading.created_at

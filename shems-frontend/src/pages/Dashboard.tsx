@@ -344,6 +344,7 @@ export default function Dashboard() {
           value={latest ? formatKwFromWatts(latest.power) : "--"}
           subValue={`Today: ${formatKwh(todayKwh)} kWh`}
           icon={<Zap className="h-5 w-5" />}
+          color="yellow"
         />
 
         <StatCard
@@ -351,17 +352,18 @@ export default function Dashboard() {
           value={formatPkr(todayCost)}
           subValue={today ? `Tariff: ${today.tariff_pkr_per_kwh || 0} PKR/kWh` : "—"}
           icon={<Wallet className="h-5 w-5" />}
+          color="green"
         />
 
         {solarStatus && (
           <button
             type="button"
             onClick={() => nav("/solar")}
-            className="text-left rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 hover:ring-indigo-500 hover:ring-2 transition-all"
+            className="text-left rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 hover:ring-orange-200 hover:ring-2 transition-all"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm text-slate-600">Solar</div>
-              <div className="text-slate-500"><Sun className="h-5 w-5" /></div>
+              <div className="text-slate-500"><Sun className="h-5 w-5"color="orange" /></div>
             </div>
             <div className="mt-2 text-2xl font-semibold tabular-nums">
               {solarStatus.solar_kw.toFixed(2)} kW
@@ -383,6 +385,7 @@ export default function Dashboard() {
                 : "Selected device"
           }
           icon={<Wifi className="h-5 w-5" />}
+          color="indigo"
         />
       </div>
 
