@@ -337,7 +337,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Cards */}
+      {/* Usage Card change here */}
       <div className={`mt-5 grid gap-4 ${solarStatus ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
         <StatCard
           title="Usage"

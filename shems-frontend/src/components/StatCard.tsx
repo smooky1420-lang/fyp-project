@@ -18,23 +18,42 @@ const iconColors = {
   yellow: "text-yellow-300",
 };
 
+const titleColors = {
+  green: "text-green-700",
+  blue: "text-blue-700",
+  orange: "text-orange-700",
+  purple: "text-purple-700",
+  indigo: "text-indigo-700",
+  yellow: "text-yellow-700",
+  slate: "text-slate-700",
+};
+
 export default function StatCard({
   title,
   value,
   subValue,
   icon,
   color = "yellow",
+  titleColor,
 }: {
   title: string;
   value: string;
   subValue?: string;
   icon?: ReactNode;
   color?: keyof typeof colorClasses;
+  titleColor?: keyof typeof titleColors | string;
 }) {
+  // Determine title color class
+  const titleColorClass = titleColor
+    ? typeof titleColor === "string" && titleColor in titleColors
+      ? titleColors[titleColor as keyof typeof titleColors]
+      : titleColor // Allow custom Tailwind classes
+    : "text-slate-700"; // Default color
+
   return (
     <div className={`rounded-2xl ring-1 shadow-sm p-5 ${colorClasses[color]}`}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm text-slate-700 font-medium">{title}</div>
+        <div className={`text-sm ${titleColorClass} font-medium`}>{title}</div>
         {icon ? <div className={iconColors[color]}>{icon}</div> : null}
       </div>
 
