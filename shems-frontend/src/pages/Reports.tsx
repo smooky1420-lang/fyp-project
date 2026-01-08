@@ -177,11 +177,6 @@ export default function Reports() {
     return Math.max(...chartData.map((d) => d.kwh));
   }, [chartData]);
 
-  const maxCost = useMemo(() => {
-    if (!chartData.length) return 0;
-    return Math.max(...chartData.map((d) => d.cost_pkr));
-  }, [chartData]);
-
   const deviceChartData = useMemo(() => {
     if (!reports || !reports.device_breakdown.length) return [];
     const total = reports.device_breakdown.reduce((sum, d) => sum + d.cost_pkr, 0);
@@ -227,7 +222,7 @@ export default function Reports() {
   }
 
   return (
-    <AppShell title="Reports">
+    <AppShell>
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -235,6 +230,7 @@ export default function Reports() {
           value={`${reports.total_kwh.toFixed(2)} kWh`}
           subValue="Last 12 months"
           icon={<Zap className="h-5 w-5" />}
+          color="green"
         />
 
         <StatCard
@@ -242,6 +238,7 @@ export default function Reports() {
           value={`PKR ${reports.total_cost_pkr.toFixed(2)}`}
           subValue="Last 12 months"
           icon={<Wallet className="h-5 w-5" />}
+          color="indigo"
         />
 
         <StatCard
@@ -249,6 +246,7 @@ export default function Reports() {
           value={`${reports.average_monthly_kwh.toFixed(2)} kWh`}
           subValue="Per month average"
           icon={<TrendingUp className="h-5 w-5" />}
+          color="blue"
         />
 
         <StatCard
@@ -256,6 +254,7 @@ export default function Reports() {
           value={`PKR ${reports.average_monthly_cost.toFixed(2)}`}
           subValue="Per month average"
           icon={<Wallet className="h-5 w-5" />}
+          color="purple"
         />
       </div>
 
@@ -296,7 +295,7 @@ export default function Reports() {
                 />
                 <Tooltip content={<BarTooltip />} />
                 <Bar dataKey="kwh" fill="#22c55e" radius={[4, 4, 0, 0]}>
-                  {chartData.map((entry, index) => (
+                  {chartData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill="#22c55e" />
                   ))}
                 </Bar>
@@ -320,12 +319,12 @@ export default function Reports() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, percent }) => `${name}: ${percent ? (percent * 100).toFixed(0) : 0}%`}
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {deviceChartData.map((entry, index) => (
+                    {deviceChartData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -356,7 +355,7 @@ export default function Reports() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, value, percent }) => `${name}: ${value.toFixed(1)} kWh (${(percent * 100).toFixed(0)}%)`}
+                    label={({ name, value, percent }) => `${name}: ${value.toFixed(1)} kWh (${percent ? (percent * 100).toFixed(0) : 0}%)`}
                     outerRadius={100}
                     innerRadius={60}
                     fill="#8884d8"

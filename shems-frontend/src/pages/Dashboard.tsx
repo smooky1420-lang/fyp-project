@@ -299,7 +299,7 @@ export default function Dashboard() {
   const isOffline = latestIsOffline(latest, 120);
 
   return (
-    <AppShell title="Dashboard">
+    <AppShell>
       {/* Device selector */}
       <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -344,7 +344,7 @@ export default function Dashboard() {
           value={latest ? formatKwFromWatts(latest.power) : "--"}
           subValue={`Today: ${formatKwh(todayKwh)} kWh`}
           icon={<Zap className="h-5 w-5" />}
-          color="yellow"
+          color="blue"
         />
 
         <StatCard
@@ -352,23 +352,23 @@ export default function Dashboard() {
           value={formatPkr(todayCost)}
           subValue={today ? `Tariff: ${today.tariff_pkr_per_kwh || 0} PKR/kWh` : "—"}
           icon={<Wallet className="h-5 w-5" />}
-          color="green"
+          color="indigo"
         />
 
         {solarStatus && (
           <button
             type="button"
             onClick={() => nav("/solar")}
-            className="text-left rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 hover:ring-orange-200 hover:ring-2 transition-all"
+            className="text-left rounded-2xl bg-gradient-to-br from-orange-50 to-orange-100/50 ring-1 ring-orange-200 shadow-sm p-5 hover:ring-orange-300 hover:ring-2 transition-all"
           >
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm text-slate-600">Solar</div>
-              <div className="text-slate-500"><Sun className="h-5 w-5"color="orange" /></div>
+              <div className="text-sm text-slate-700 font-medium">Solar</div>
+              <div className="text-orange-600"><Sun className="h-5 w-5" /></div>
             </div>
-            <div className="mt-2 text-2xl font-semibold tabular-nums">
+            <div className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">
               {solarStatus.solar_kw.toFixed(2)} kW
             </div>
-            <div className="mt-2 text-xs text-slate-500 tabular-nums">
+            <div className="mt-2 text-xs text-slate-600 tabular-nums">
               Savings: {formatPkr(solarStatus.savings_today_pkr)}
             </div>
           </button>
@@ -385,7 +385,7 @@ export default function Dashboard() {
                 : "Selected device"
           }
           icon={<Wifi className="h-5 w-5" />}
-          color="indigo"
+          color="green"
         />
       </div>
 

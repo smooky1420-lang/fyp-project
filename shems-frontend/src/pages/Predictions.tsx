@@ -168,7 +168,7 @@ export default function Predictions() {
   }, 0);
 
   return (
-    <AppShell title="AI Predictions">
+    <AppShell>
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -176,6 +176,7 @@ export default function Predictions() {
           value={`${summary.totalPredictedUsage.toFixed(2)} kWh`}
           subValue={`${predictionPeriod === "week" ? "Next 7 days" : "Next 30 days"}`}
           icon={<Zap className="h-5 w-5" />}
+          color="indigo"
         />
 
         <StatCard
@@ -183,6 +184,7 @@ export default function Predictions() {
           value={`PKR ${summary.totalPredictedCost.toFixed(2)}`}
           subValue={`${predictionPeriod === "week" ? "Next 7 days" : "Next 30 days"}`}
           icon={<Wallet className="h-5 w-5" />}
+          color="purple"
         />
 
         <StatCard
@@ -190,6 +192,7 @@ export default function Predictions() {
           value={`${summary.avgDailyUsage.toFixed(2)} kWh`}
           subValue={`Per day average`}
           icon={<TrendingUp className="h-5 w-5" />}
+          color="blue"
         />
 
         <StatCard
@@ -197,6 +200,7 @@ export default function Predictions() {
           value={summary.trend === "increasing" ? "↑ Increasing" : "↓ Decreasing"}
           subValue={`${summary.trendPercent}% ${summary.trend === "increasing" ? "increase" : "decrease"}`}
           icon={summary.trend === "increasing" ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+          color="orange"
         />
       </div>
 

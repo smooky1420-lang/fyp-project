@@ -319,7 +319,7 @@ export default function Monitoring() {
   };
 
   return (
-    <AppShell title="Monitoring">
+    <AppShell>
       {/* Device Selector & Quick Actions */}
       <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

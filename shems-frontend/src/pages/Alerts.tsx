@@ -45,7 +45,7 @@ export default function AlertsPage() {
   }
 
   return (
-    <AppShell title="Alerts">
+    <AppShell>
       <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

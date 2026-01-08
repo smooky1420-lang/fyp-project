@@ -202,7 +202,7 @@ export default function Solar() {
     : "0";
 
   return (
-    <AppShell title="Solar">
+    <AppShell>
       <div className="min-h-screen bg-slate-50 text-slate-900">
         <div className="p-6">
           <div className="max-w-5xl mx-auto">
@@ -231,6 +231,7 @@ export default function Solar() {
                 value={formatKw(solarStatus.solar_kw)}
                 subValue={`${solarCoverage}% of home usage`}
                 icon={<Sun className="h-5 w-5" />}
+                color="yellow"
               />
 
               <StatCard
@@ -238,6 +239,7 @@ export default function Solar() {
                 value={formatKw(solarStatus.home_kw)}
                 subValue="Current load"
                 icon={<Zap className="h-5 w-5" />}
+                color="blue"
               />
 
               <StatCard
@@ -245,6 +247,7 @@ export default function Solar() {
                 value={formatKw(solarStatus.grid_import_kw)}
                 subValue={solarStatus.grid_import_kw > 0 ? "From grid" : "Self-sufficient"}
                 icon={<TrendingUp className="h-5 w-5" />}
+                color="orange"
               />
 
               <StatCard
@@ -252,6 +255,7 @@ export default function Solar() {
                 value={formatPkr(solarStatus.savings_today_pkr)}
                 subValue="Estimated savings"
                 icon={<TrendingUp className="h-5 w-5" />}
+                color="green"
               />
             </div>
 
