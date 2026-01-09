@@ -8,9 +8,9 @@ BASE = "http://127.0.0.1:8000"
 # List of tokens for your 3 devices
 # You can get these from your Django Admin or the 'device_token' field in the database
 DEVICE_TOKENS = [
-    "6bd7474e0b4447d19184da8081f5642b",  # Device 1
-    "309adaebd7bd44869bac7bd373df27cf",              # Device 2
-    "a9e42ef6890d41caa63e7b53777b8ee2"               # Device 3
+    "7e053045685846afb93d5dd157385b48",  # Device 1
+    "8490871767f34fae88076b56e79bb44f",              # Device 2
+    "14f2e9d404cb4e038bf7e64aa6402d01"               # Device 3
 ]
 
 def send_telemetry(token, device_index):
