@@ -24,7 +24,7 @@ import {
 import { Download, History, Loader2, Zap } from "lucide-react";
 import StatCard from "../components/StatCard";
 
-type Preset = "1h" | "24h" | "7d" | "custom";
+type Preset = "1h" | "24h" | "7d" | "30d" | "custom";
 type Metric = "power" | "voltage" | "current" | "energy";
 
 function toLocalInputValue(d: Date) {
@@ -148,6 +148,7 @@ export default function Monitoring() {
     if (preset === "1h") setFromLocal(toLocalInputValue(new Date(now.getTime() - 60 * 60_000)));
     if (preset === "24h") setFromLocal(toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60_000)));
     if (preset === "7d") setFromLocal(toLocalInputValue(new Date(now.getTime() - 7 * 24 * 60 * 60_000)));
+    if (preset === "30d") setFromLocal(toLocalInputValue(new Date(now.getTime() - 30 * 24 * 60 * 60_000)));
 
     setToLocal(toLocalInputValue(now));
   }, [preset]);
@@ -160,6 +161,7 @@ export default function Monitoring() {
     if (preset === "1h") return isoFromNowMinus(60 * 60_000);
     if (preset === "24h") return isoFromNowMinus(24 * 60 * 60_000);
     if (preset === "7d") return isoFromNowMinus(7 * 24 * 60 * 60_000);
+    if (preset === "30d") return isoFromNowMinus(30 * 24 * 60 * 60_000);
     return undefined;
   }, [preset, fromLocal]);
 
@@ -325,6 +327,10 @@ export default function Monitoring() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm text-slate-600">Device</div>
+            {devices.length > 1 && (
+              <p className="text-xs text-amber-700 mt-0.5">
+              </p>
+            )}
             <select
               className="mt-1 w-full sm:w-96 rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
               value={deviceId === "home" ? "home" : deviceId ?? ""}
@@ -372,6 +378,7 @@ export default function Monitoring() {
             <PresetBtn active={preset === "1h"} onClick={() => setPreset("1h")}>1h</PresetBtn>
             <PresetBtn active={preset === "24h"} onClick={() => setPreset("24h")}>24h</PresetBtn>
             <PresetBtn active={preset === "7d"} onClick={() => setPreset("7d")}>7d</PresetBtn>
+            <PresetBtn active={preset === "30d"} onClick={() => setPreset("30d")}>30d</PresetBtn>
             <PresetBtn active={preset === "custom"} onClick={() => setPreset("custom")}>Custom</PresetBtn>
           </div>
           

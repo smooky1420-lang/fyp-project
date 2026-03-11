@@ -278,20 +278,87 @@ class MonthlyReportsAPI(APIView):
         
         return list(device_totals.values())
 
+    def get_device_monthly_breakdown(self, user, months=12):
+        """
+        Per-month device breakdown.
+
+        Returns a list of:
+          {
+            "month": "YYYY-MM",
+            "month_name": "Jan 2026",
+            "devices": [ {device_id, name, room, kwh, cost_pkr}, ... ]
+          }
+        """
+        devices = Device.objects.filter(user=user)
+        if not devices.exists():
+            return []
+
+        settings_obj, _ = UserSettings.objects.get_or_create(user=user)
+        tariff = float(settings_obj.tariff_pkr_per_kwh) if settings_obj.tariff_pkr_per_kwh else 0.0
+
+        tz = timezone.get_current_timezone()
+        now = timezone.localtime(timezone.now(), tz)
+
+        out = []
+        for i in range(months):
+            # Same month-walking logic as get_monthly_reports
+            if i == 0:
+                month_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            else:
+                month_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                for _ in range(i):
+                    if month_date.month == 1:
+                        month_date = month_date.replace(year=month_date.year - 1, month=12)
+                    else:
+                        month_date = month_date.replace(month=month_date.month - 1)
+
+            month_start = month_date
+            if month_date.month == 12:
+                month_end = month_date.replace(year=month_date.year + 1, month=1, day=1)
+            else:
+                month_end = month_date.replace(month=month_date.month + 1, day=1)
+
+            devices_rows = []
+            for device in devices:
+                kwh = self.calc_monthly_kwh(device, month_start, month_end)
+                if kwh <= 0:
+                    continue
+                devices_rows.append(
+                    {
+                        "device_id": device.id,
+                        "name": device.name,
+                        "room": device.room or "",
+                        "kwh": kwh,
+                        "cost_pkr": round(kwh * tariff, 2),
+                    }
+                )
+
+            out.append(
+                {
+                    "month": month_date.strftime("%Y-%m"),
+                    "month_name": month_date.strftime("%b %Y"),
+                    "devices": devices_rows,
+                }
+            )
+
+        return out
+
     def get(self, request):
         reports = self.get_monthly_reports(request.user, months=12)
         device_breakdown = self.get_device_breakdown(request.user, months=12)
-        
+        device_monthly_breakdown = self.get_device_monthly_breakdown(request.user, months=12)
+
         # Calculate totals
         total_kwh = sum(r["kwh"] for r in reports)
         total_cost = sum(r["cost_pkr"] for r in reports)
-        
+
         # Get solar data if available
         from solar.models import SolarConfig
+
         solar_config = SolarConfig.objects.filter(user=request.user, enabled=True).first()
         solar_total_kwh = 0.0
         grid_total_kwh = total_kwh
-        
+
         if solar_config:
             # Estimate solar generation for last 12 months (simplified)
             # Rough estimate: average 4 hours of peak sun per day, 70% efficiency
@@ -299,14 +366,17 @@ class MonthlyReportsAPI(APIView):
             estimated_solar_kwh = (solar_config.installed_capacity_kw * 4 * days_in_period) * 0.7
             solar_total_kwh = min(estimated_solar_kwh, total_kwh * 0.5)  # Cap at 50% of total
             grid_total_kwh = max(0, total_kwh - solar_total_kwh)
-        
-        return Response({
-            "monthly_reports": reports,
-            "total_kwh": round(total_kwh, 2),
-            "total_cost_pkr": round(total_cost, 2),
-            "average_monthly_kwh": round(total_kwh / len(reports) if reports else 0, 2),
-            "average_monthly_cost": round(total_cost / len(reports) if reports else 0, 2),
-            "device_breakdown": device_breakdown,
-            "solar_kwh": round(solar_total_kwh, 2),
-            "grid_kwh": round(grid_total_kwh, 2),
-        })
+
+        return Response(
+            {
+                "monthly_reports": reports,
+                "total_kwh": round(total_kwh, 2),
+                "total_cost_pkr": round(total_cost, 2),
+                "average_monthly_kwh": round(total_kwh / len(reports) if reports else 0, 2),
+                "average_monthly_cost": round(total_cost / len(reports) if reports else 0, 2),
+                "device_breakdown": device_breakdown,
+                "device_monthly_breakdown": device_monthly_breakdown,
+                "solar_kwh": round(solar_total_kwh, 2),
+                "grid_kwh": round(grid_total_kwh, 2),
+            }
+        )

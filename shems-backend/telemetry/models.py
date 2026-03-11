@@ -1,5 +1,7 @@
 from django.db import models
+from django.utils import timezone
 from devices.models import Device
+
 
 class TelemetryReading(models.Model):
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="readings")
@@ -9,7 +11,8 @@ class TelemetryReading(models.Model):
     power = models.FloatField()
     energy_kwh = models.FloatField()
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Not auto_now_add so scripts can set historical timestamps; default used when upload API doesn't pass it
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         indexes = [

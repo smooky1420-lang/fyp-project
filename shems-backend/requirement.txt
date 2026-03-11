@@ -4,3 +4,9 @@ djangorestframework-simplejwt
 django-cors-headers
 requests
 python-dotenv
+pandas
+scikit-learn
+joblib
+pandas
+scikit-learn
+joblib

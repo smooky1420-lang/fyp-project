@@ -89,9 +89,18 @@ export type Device = {
   room: string;
   device_type: string;
   is_controllable: boolean;
+  relay_on: boolean;
+  power_limit_w: number | null;
+  daily_energy_limit_kwh: number | null;
+  schedule_enabled: boolean;
+  schedule_on_time: string | null; // "HH:MM:SS"
+  schedule_off_time: string | null;
   device_token: string;
   created_at: string;
 };
+
+/** Partial update for device (control, limits, schedule) */
+export type DeviceUpdate = Partial<Pick<Device, "name" | "room" | "device_type" | "is_controllable" | "relay_on" | "power_limit_w" | "daily_energy_limit_kwh" | "schedule_enabled" | "schedule_on_time" | "schedule_off_time">>;
 
 async function authFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const token = getAccess();
@@ -136,6 +145,13 @@ export async function createDevice(input: {
   return authFetch<Device>("/api/devices/", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export async function updateDevice(id: number, data: DeviceUpdate): Promise<Device> {
+  return authFetch<Device>(`/api/devices/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
   });
 }
 
@@ -242,12 +258,50 @@ export type MonthlyReportsResult = {
   average_monthly_kwh: number;
   average_monthly_cost: number;
   device_breakdown: DeviceBreakdown[];
+  device_monthly_breakdown: {
+    month: string;
+    month_name: string;
+    devices: DeviceBreakdown[];
+  }[];
   solar_kwh: number;
   grid_kwh: number;
 };
 
 export async function getMonthlyReports(): Promise<MonthlyReportsResult> {
   return authFetch<MonthlyReportsResult>("/api/settings/monthly-reports/", { method: "GET" });
+}
+
+// Predictions API
+export type PredictionDay = {
+  date: string;
+  date_label: string;
+  predicted_usage_kwh: number;
+  predicted_cost_pkr: number;
+  actual_usage_kwh?: number | null;
+  actual_cost_pkr?: number | null;
+};
+
+export type UsagePredictionResult = {
+  predictions: PredictionDay[];
+  actuals: Array<{ date: string; date_label: string; actual_usage_kwh: number; actual_cost_pkr: number }>;
+  message: string | null;
+  period_days: number;
+};
+
+export type Recommendation = {
+  type: string;
+  priority: "high" | "medium" | "low";
+  title: string;
+  description: string;
+  impact: string;
+};
+
+export async function getUsagePrediction(period: 7 | 30 = 7): Promise<UsagePredictionResult> {
+  return authFetch<UsagePredictionResult>(`/api/predictions/usage/?period=${period}`, { method: "GET" });
+}
+
+export async function getRecommendations(): Promise<{ recommendations: Recommendation[] }> {
+  return authFetch<{ recommendations: Recommendation[] }>("/api/predictions/recommendations/", { method: "GET" });
 }
 
 // Solar API

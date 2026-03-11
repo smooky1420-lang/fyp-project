@@ -136,6 +136,7 @@ export default function Reports() {
   const [reports, setReports] = useState<MonthlyReportsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -145,6 +146,10 @@ export default function Reports() {
         const data = await getMonthlyReports();
         if (!alive) return;
         setReports(data);
+        // Default to the latest month (first in monthly_reports)
+        if (data.monthly_reports.length && !selectedMonth) {
+          setSelectedMonth(data.monthly_reports[0].month);
+        }
         setError(null);
       } catch (err: unknown) {
         if (!alive) return;
@@ -165,7 +170,7 @@ export default function Reports() {
     return () => {
       alive = false;
     };
-  }, [nav]);
+  }, [nav, selectedMonth]);
 
   const chartData: ChartData[] = useMemo(() => {
     if (!reports) return [];
@@ -178,15 +183,29 @@ export default function Reports() {
   }, [chartData]);
 
   const deviceChartData = useMemo(() => {
-    if (!reports || !reports.device_breakdown.length) return [];
-    const total = reports.device_breakdown.reduce((sum, d) => sum + d.cost_pkr, 0);
-    return reports.device_breakdown.map(d => ({
+    if (!reports) return [];
+
+    // Find device breakdown for the selected month if available
+    const monthKey = selectedMonth;
+    let devicesForMonth = reports.device_breakdown;
+
+    if (monthKey && reports.device_monthly_breakdown?.length) {
+      const entry = reports.device_monthly_breakdown.find((m) => m.month === monthKey);
+      if (entry && entry.devices.length) {
+        devicesForMonth = entry.devices;
+      }
+    }
+
+    if (!devicesForMonth.length) return [];
+
+    const total = devicesForMonth.reduce((sum, d) => sum + d.cost_pkr, 0);
+    return devicesForMonth.map(d => ({
       name: d.name,
       value: d.cost_pkr,
       kwh: d.kwh,
       total,
     }));
-  }, [reports]);
+  }, [reports, selectedMonth]);
 
   const solarGridData = useMemo(() => {
     if (!reports) return [];
@@ -263,14 +282,29 @@ export default function Reports() {
         <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold">Monthly Energy Usage</h2>
-            <button
-              type="button"
-              onClick={() => reports && downloadCSV(reports)}
-              className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-500 inline-flex items-center gap-2"
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </button>
+            <div className="flex items-center gap-3">
+              {reports && reports.monthly_reports.length > 0 && (
+                <select
+                  className="rounded-xl ring-1 ring-slate-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                  value={selectedMonth ?? reports.monthly_reports[0].month}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                >
+                  {reports.monthly_reports.map((m) => (
+                    <option key={m.month} value={m.month}>
+                      {m.month_name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => reports && downloadCSV(reports)}
+                className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-500 inline-flex items-center gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Export CSV
+              </button>
+            </div>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
@@ -294,10 +328,18 @@ export default function Reports() {
                   label={{ value: "kWh", angle: -90, position: "insideLeft", fill: "#64748b" }}
                 />
                 <Tooltip content={<BarTooltip />} />
-                <Bar dataKey="kwh" fill="#22c55e" radius={[4, 4, 0, 0]}>
-                  {chartData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill="#22c55e" />
-                  ))}
+                <Bar dataKey="kwh" radius={[4, 4, 0, 0]}>
+                  {chartData.map((d, index) => {
+                    const isSelected =
+                      selectedMonth &&
+                      selectedMonth === d.month;
+                    return (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={isSelected ? "#4f46e5" : "#22c55e"}
+                      />
+                    );
+                  })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

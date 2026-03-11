@@ -14,6 +14,17 @@ class Device(models.Model):
     device_type = models.CharField(max_length=50, blank=True, default="")
 
     is_controllable = models.BooleanField(default=False)
+    # Relay state: when True, ESP32 should turn load ON (for controllable devices)
+    relay_on = models.BooleanField(default=False)
+
+    # Optional limits (ESP32/PZEM can enforce; stored here for UI and device fetch)
+    power_limit_w = models.FloatField(null=True, blank=True)
+    daily_energy_limit_kwh = models.FloatField(null=True, blank=True)
+
+    # Simple daily schedule: device allowed on only between these times (when enabled)
+    schedule_enabled = models.BooleanField(default=False)
+    schedule_on_time = models.TimeField(null=True, blank=True)
+    schedule_off_time = models.TimeField(null=True, blank=True)
 
     # For ESP32 later (device authenticates using this token)
     device_token = models.CharField(

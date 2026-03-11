@@ -1,0 +1,2 @@
+# Trained predictor is saved here as predictor.joblib after running:
+# python manage.py train_predictor

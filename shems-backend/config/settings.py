@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     "telemetry",
     "user_settings",
     "solar",
-
+    "predictions",
 ]
 
 MIDDLEWARE = [
@@ -83,24 +83,24 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "shems_db",
-        "USER": "postgres",
-        "PASSWORD": "admin123",
-        "HOST": "127.0.0.1",
-        "PORT": "5432",
-    }
-}
-# backend/settings.py
-
 # DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
+#     "default": {
+#         "ENGINE": "django.db.backends.postgresql",
+#         "NAME": "shems_db",
+#         "USER": "postgres",
+#         "PASSWORD": "admin123",
+#         "HOST": "127.0.0.1",
+#         "PORT": "5432",
 #     }
 # }
+# backend/settings.py
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 
 # Password validation

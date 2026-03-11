@@ -25,7 +25,6 @@ urlpatterns = [
     path("api/telemetry/", include("telemetry.urls")),
     path("api/settings/", include("user_settings.urls")),
     path("api/solar/", include("solar.urls")),
-
-    
+    path("api/predictions/", include("predictions.urls")),
 ]
 
