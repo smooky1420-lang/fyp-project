@@ -321,15 +321,6 @@ def get_recommendations(user):
             "impact": "Estimate savings in the Solar page for your configuration.",
         })
 
-    # LED / efficiency (generic but useful)
-    recs.append({
-        "type": "efficiency",
-        "priority": "medium",
-        "title": "Use LED bulbs where possible",
-        "description": "Replacing incandescent with LEDs can cut lighting usage by up to 80%.",
-        "impact": "Save on lighting costs long-term.",
-    })
-
     # Sort: high first, then medium, then low
     order = {"high": 0, "medium": 1, "low": 2}
     recs.sort(key=lambda r: (order.get(r["priority"], 1), r["title"]))

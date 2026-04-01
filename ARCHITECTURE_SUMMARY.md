@@ -68,15 +68,18 @@ The system follows a **3-tier architecture**:
 
 ```
 User (Django Auth)
-  ├── Device (1:N) - User owns multiple devices
+  ├── Device (1:N) - User owns multiple devices (control, limits, schedule, device_token)
   │     └── TelemetryReading (1:N) - Device has many readings
   ├── UserSettings (1:1) - User has one settings record
   └── SolarConfig (1:1) - User has one solar configuration
         └── SolarGeneration (1:N) - Historical solar data
 ```
 
+**Trained model artifact (file, not a DB table):**
+- `shems-backend/models/predictor.joblib` — scikit-learn `RandomForestRegressor` for daily usage prediction (produced by `train_predictor`)
+
 **Database Tables:**
-- `devices_device`: Stores device metadata (name, room, type, device_token)
+- `devices_device`: Stores device metadata (name, room, type, `device_token`, optional `relay_on`, power/daily limits, schedule fields for controllable loads)
 - `telemetry_telemetryreading`: Stores power measurements (voltage, current, power, energy_kwh)
 - `user_settings_usersettings`: Stores user tariff rate
 - `solar_solarconfig`: Stores solar panel configuration
@@ -107,15 +110,16 @@ The `src/lib/` folder contains **shared utility modules** for the frontend:
 
 3. **API Endpoint Functions**
    - **Authentication**: `registerUser()`, `loginUser()`, `me()`
-   - **Devices**: `listDevices()`, `createDevice()`, `deleteDevice()`
+   - **Devices**: `listDevices()`, `createDevice()`, `updateDevice()`, `deleteDevice()`
    - **Telemetry**: `getLatestTelemetry()`, `getTelemetryRange()`, `getTodaySummary()`
    - **Settings**: `getUserSettings()`, `updateUserSettings()`, `getTariffCalculator()`, `getMonthlyReports()`
+   - **Predictions**: `getUsagePrediction()`, `getRecommendations()`
    - **Solar**: `getSolarConfig()`, `updateSolarConfig()`, `getSolarStatus()`, `getSolarHistory()`
 
 4. **TypeScript Type Definitions**
    - Exports TypeScript interfaces for all API responses
    - Ensures type safety across the frontend
-   - Examples: `Device`, `TelemetryReading`, `SolarStatus`, `TodaySummary`
+   - Examples: `Device`, `TelemetryReading`, `SolarStatus`, `TodaySummary`, `UsagePredictionResult`, `Recommendation`
 
 **Benefits:**
 - **DRY Principle**: No duplicate fetch logic in components
@@ -129,7 +133,57 @@ The `src/lib/` folder contains **shared utility modules** for the frontend:
 
 ---
 
-## 4. Solar Calculation Logic
+## 4. Predictions and Recommendations
+
+### Overview
+
+The **`predictions`** app forecasts **home total daily energy (kWh)** using a **Random Forest** regressor trained on historical daily aggregates from **all users’** telemetry. At request time, the API builds features from the **logged-in user’s** recent history and applies the shared model in `models/predictor.joblib`.
+
+### Components
+
+- **`predictions/services.py`** — Feature construction from daily usage history, `predict_usage()` loads the joblib model (no moving-average fallback once a model file exists).
+- **`predictions/views.py`** — `GET /api/predictions/usage/?period=7|30` returns predicted (and recent actual) daily kWh/cost; `GET /api/predictions/recommendations/` returns rule- and data-driven tips (e.g. peak-hour usage when relevant).
+- **`predictions/management/commands/train_predictor.py`** — Trains the regressor from DB telemetry and writes `models/predictor.joblib`.
+- **`validate_model.py`** (project root under `shems-backend`) — Optional offline R²/MAE check on the training setup.
+
+### Workflow
+
+1. Ingest telemetry (real ESP32 uploads or synthetic generator).
+2. Run `python manage.py train_predictor` from `shems-backend` to refresh `predictor.joblib`.
+3. Frontend **Predictions** page calls `/api/predictions/usage/`.
+
+If `predictor.joblib` is missing, prediction responses indicate that the model must be trained first.
+
+---
+
+## 5. Synthetic Telemetry (Demo Data)
+
+### Purpose
+
+Management commands generate **hourly** `TelemetryReading` rows for demos and ML training without hardware.
+
+### Commands (run from `shems-backend`)
+
+| Command | Role |
+|--------|------|
+| `python manage.py generate_synthetic_telemetry --device-token <TOKEN> [--role ac\|pc\|fan] [--clear]` | ~1 year of hourly data for **one** device |
+| `python manage.py seed_demo_devices [token1 token2 token3]` | Runs generation for **three** tokens with roles **AC → PC → Fan/Lights** (order matters) |
+
+### Pakistani household model (three devices)
+
+Targets are **per device**; combined household totals stay roughly in the **5–10 kWh/day** band before noise:
+
+- **AC**: ~5 kWh weekdays, ~7 kWh weekends (+2 kWh); evening-weighted hours so power is ~**1000 W** when the AC is “on” (`power` ≈ hourly kWh × 1000).
+- **PC**: ~1 kWh/day (daytime window).
+- **Fan/Lights**: ~0.5 kWh/day (spread across 24 h).
+
+**Variation:** ±15% multiplicative noise per hour; **+0.1%** per calendar day seasonal ramp with a cap so combined daily energy stays bounded.
+
+`TelemetryReading.power` is **average watts over that hour**; cumulative `energy_kwh` increases hour by hour for charting and delta-based cost logic.
+
+---
+
+## 6. Solar Calculation Logic
 
 ### Architecture Overview
 
@@ -137,7 +191,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 
 ### Components
 
-#### 4.1 Weather Service (`solar/weather_service.py`)
+#### 6.1 Weather Service (`solar/weather_service.py`)
 
 **Purpose**: Fetches and caches weather data from OpenWeatherMap API.
 
@@ -151,7 +205,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 
 **Caching Strategy**: Reduces API calls and improves performance.
 
-#### 4.2 Solar Generation Estimation (`solar/solar_service.py`)
+#### 6.2 Solar Generation Estimation (`solar/solar_service.py`)
 
 **Function**: `estimate_solar_kw(capacity_kw, cloud_cover, now, sunrise, sunset)`
 
@@ -180,7 +234,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 - Cloud cover reduces efficiency linearly (up to 75% reduction)
 - Accounts for time of day (no generation at night)
 
-#### 4.3 Solar Status API (`solar/views.py` - `SolarStatusAPI`)
+#### 6.3 Solar Status API (`solar/views.py` - `SolarStatusAPI`)
 
 **Endpoint**: `GET /api/solar/status/`
 
@@ -217,7 +271,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 }
 ```
 
-#### 4.4 Solar History API (`solar/views.py` - `SolarHistoryAPI`)
+#### 6.4 Solar History API (`solar/views.py` - `SolarHistoryAPI`)
 
 **Endpoint**: `GET /api/solar/history/?from=...&to=...&limit=200`
 
@@ -229,7 +283,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 
 ---
 
-## 5. Tariff Calculation Logic
+## 7. Tariff Calculation Logic
 
 ### Overview
 
@@ -237,13 +291,13 @@ The system implements **Pakistan's electricity tariff structure** with protectio
 
 ### Components
 
-#### 5.1 Tariff Calculator API (`user_settings/views.py` - `TariffCalculatorAPI`)
+#### 7.1 Tariff Calculator API (`user_settings/views.py` - `TariffCalculatorAPI`)
 
 **Endpoint**: `GET /api/settings/tariff-calculator/`
 
 **Purpose**: Calculates the appropriate electricity tariff rate based on usage history.
 
-#### 5.2 Protection Status Logic
+#### 7.2 Protection Status Logic
 
 **Definition**: A user is "protected" if **all of the last 6 months** had usage < 200 kWh.
 
@@ -253,7 +307,7 @@ is_protected = all(month["kwh"] < 200 for month in monthly_usage)
 
 **Why 6 months?**: Pakistan's tariff protection requires consistent low usage.
 
-#### 5.3 Tariff Rate Calculation (`calculate_tariff()`)
+#### 7.3 Tariff Rate Calculation (`calculate_tariff()`)
 
 **Tariff Structure (PKR per kWh):**
 
@@ -282,7 +336,7 @@ def calculate_tariff(units, is_protected):
         return 33.10  # Highest rate
 ```
 
-#### 5.4 Monthly Usage Calculation (`calc_monthly_kwh()`)
+#### 7.4 Monthly Usage Calculation (`calc_monthly_kwh()`)
 
 **Method**: Calculates energy consumption by computing **positive deltas** in cumulative `energy_kwh` readings.
 
@@ -300,7 +354,7 @@ def calculate_tariff(units, is_protected):
 
 **Why deltas?**: Handles meter resets and ensures accuracy even if device restarts.
 
-#### 5.5 Cost Calculation
+#### 7.5 Cost Calculation
 
 **Formula**: `cost = energy_kwh × tariff_pkr_per_kwh`
 
@@ -309,13 +363,14 @@ def calculate_tariff(units, is_protected):
 - `MonthlyReportsAPI`: Monthly cost reports
 - `SolarStatusAPI`: Solar savings calculation
 
-#### 5.6 Monthly Reports API (`MonthlyReportsAPI`)
+#### 7.6 Monthly Reports API (`MonthlyReportsAPI`)
 
 **Endpoint**: `GET /api/settings/monthly-reports/`
 
 **Returns:**
 - Last 12 months of usage and cost
-- Device breakdown (per-device totals)
+- `device_breakdown`: per-device totals across the window
+- `device_monthly_breakdown`: for each month, per-device kWh/cost (for pie charts and month filters on the Reports page)
 - Solar vs. grid energy split
 - Aggregated statistics (totals, averages)
 
@@ -326,17 +381,20 @@ def calculate_tariff(units, is_protected):
 
 ---
 
-## 6. API Endpoint Summary
+## 8. API Endpoint Summary
 
 ### Authentication (`/api/auth/`)
 - `POST /api/auth/register/` - User registration
-- `POST /api/auth/login/` - JWT token generation
+- `POST /api/auth/login/` - JWT access + refresh tokens
+- `POST /api/auth/refresh/` - New access token from refresh token
 - `GET /api/auth/me/` - Current user info
 
 ### Devices (`/api/devices/`)
 - `GET /api/devices/` - List user's devices
 - `POST /api/devices/` - Create device
+- `PATCH /api/devices/{id}/` - Update device (relay, limits, schedule, metadata)
 - `DELETE /api/devices/{id}/` - Delete device
+- `GET /api/devices/state-by-token/` - ESP32: fetch relay/limits/schedule (header `X-DEVICE-TOKEN`, no JWT)
 
 ### Telemetry (`/api/telemetry/`)
 - `POST /api/telemetry/telemetry/upload/` - Device upload (X-DEVICE-TOKEN auth)
@@ -356,9 +414,13 @@ def calculate_tariff(units, is_protected):
 - `GET /api/solar/status/` - Current solar status
 - `GET /api/solar/history/?from=...&to=...` - Historical data
 
+### Predictions (`/api/predictions/`)
+- `GET /api/predictions/usage/?period=7|30` - Daily usage forecast (and recent actuals) for the current user
+- `GET /api/predictions/recommendations/` - Energy-saving recommendations
+
 ---
 
-## 7. Security Architecture
+## 9. Security Architecture
 
 ### Authentication Methods
 
@@ -381,17 +443,17 @@ def calculate_tariff(units, is_protected):
 
 ---
 
-## 8. Key Design Patterns
+## 10. Key Design Patterns
 
 1. **Repository Pattern**: Django ORM abstracts database access
-2. **Service Layer**: `solar_service.py` and `weather_service.py` separate business logic
+2. **Service Layer**: `solar_service.py`, `weather_service.py`, and `predictions/services.py` separate business logic
 3. **Serializer Pattern**: DRF serializers handle data transformation
 4. **API Client Pattern**: `/lib/api.ts` centralizes HTTP communication
 5. **Caching Strategy**: Weather data cached to reduce API calls
 
 ---
 
-## 9. Technology Stack Summary
+## 11. Technology Stack Summary
 
 **Backend:**
 - Django 6.0
@@ -399,17 +461,20 @@ def calculate_tariff(units, is_protected):
 - JWT Authentication (SimpleJWT)
 - SQLite (development) / PostgreSQL (production-ready)
 - OpenWeatherMap API integration
+- scikit-learn (Random Forest regressor), pandas, joblib (training and inference for usage predictions)
 
 **Frontend:**
 - React 18
 - TypeScript
 - Vite (build tool)
 - React Router (routing)
+- Charting on Monitoring / Reports / Predictions pages
 
 **Key Libraries:**
 - `corsheaders`: CORS handling
 - `rest_framework_simplejwt`: JWT tokens
 - `requests`: HTTP client for weather API
+- `numpy` / `pandas` / `scikit-learn` / `joblib`: ML pipeline (backend)
 
 ---
 

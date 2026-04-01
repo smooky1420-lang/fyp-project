@@ -6,6 +6,23 @@ This guide helps you quickly make common frontend modifications during your exam
 
 ---
 
+## 📂 **Main App Pages (`src/pages/`)**
+
+| Page | File | Notes |
+|------|------|--------|
+| Dashboard | `Dashboard.tsx` | Overview stats |
+| Monitoring | `Monitoring.tsx` | Per-device telemetry charts — pick **device** + range (7d/30d) |
+| Devices | `Devices.tsx` | CRUD, relay/limits/schedule, copy **device token** for ESP/synthetic |
+| Predictions | `Predictions.tsx` | ML forecast + actuals (`/api/predictions/usage/`) |
+| Reports | `Reports.tsx` | Monthly reports, pie chart uses **selected month** + `device_monthly_breakdown` |
+| Settings | `Settings.tsx` | Tariff, calculator |
+| Solar | `Solar.tsx` | Config, live status, savings |
+| Alerts | `Alerts.tsx` | Alerts / notifications UI |
+
+Shared API calls live in **`src/lib/api.ts`** (devices, telemetry, settings, predictions, solar).
+
+---
+
 ## 📍 **1. Changing Colors**
 
 ### **StatCard Colors** (`src/components/StatCard.tsx`)

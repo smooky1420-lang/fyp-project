@@ -17,7 +17,6 @@ import {
   Zap,
   Wallet,
   Lightbulb,
-  AlertCircle,
   CheckCircle,
   Sparkles,
 } from "lucide-react";
@@ -255,17 +254,12 @@ export default function Predictions() {
             </div>
           </div>
 
-          {predictionsMessage && (
-            <div className="mb-4 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-3 text-sm text-amber-800">
-              {predictionsMessage}
-            </div>
-          )}
-
           {loading ? (
             <div className="h-80 flex items-center justify-center text-slate-500">Loading…</div>
           ) : filteredChartData.length === 0 ? (
-            <div className="h-80 flex items-center justify-center text-slate-500">
-              No prediction data. Add devices and collect a few days of usage.
+            <div className="h-80 flex items-center justify-center text-slate-500 text-center px-4 text-sm">
+              {predictionsMessage ??
+                "No prediction data. Add devices and collect a few days of usage."}
             </div>
           ) : (
             <div className="h-80">
@@ -441,20 +435,6 @@ export default function Predictions() {
               ))}
             </div>
           )}
-
-          <div className="mt-6 p-4 rounded-xl bg-indigo-50 ring-1 ring-indigo-200">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-indigo-600 mt-0.5" />
-              <div>
-                <div className="font-semibold text-indigo-900 mb-1">How predictions work</div>
-                <p className="text-sm text-indigo-700">
-                  Predictions use a moving average of your recent daily usage—no external AI. Recommendations
-                  are based on your month-over-month trend, top-consuming devices, and solar setup. More
-                  historical data improves accuracy.
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </AppShell>

@@ -9,7 +9,7 @@ class UsagePredictionAPI(APIView):
     """
     GET /api/predictions/usage/?period=7|30
     Returns predicted daily usage and cost for next 7 or 30 days.
-    Uses scikit-learn model (models/predictor.joblib) when available, else moving average.
+    Uses the trained scikit-learn model (models/predictor.joblib).
     Needs at least 3 days of usage data.
     """
     permission_classes = [IsAuthenticated]
@@ -52,7 +52,7 @@ class UsagePredictionAPI(APIView):
 class RecommendationsAPI(APIView):
     """
     GET /api/predictions/recommendations/
-    Returns data-driven recommendations (month-over-month, top device, solar, tips).
+    Returns data-driven recommendations (month-over-month, top device, peak-hour usage, solar).
     """
     permission_classes = [IsAuthenticated]
 

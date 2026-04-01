@@ -1,4 +1,20 @@
-# 🚀 Quick Cheat Sheet - Frontend Changes
+# 🚀 Quick Cheat Sheet
+
+## Backend (Django) — from folder `shems-backend`
+
+| Task | Command |
+|------|---------|
+| Run API | `python manage.py runserver` |
+| **Synthetic data** for one device | `python manage.py generate_synthetic_telemetry --device-token <TOKEN> --role ac` (or `pc`, `fan`) — add `--clear` to replace readings |
+| **Demo: all three meters** (AC → PC → Fan order) | `python manage.py seed_demo_devices` |
+| **Train usage model** (after telemetry exists) | `python manage.py train_predictor` |
+| Optional model metrics | `python validate_model.py` |
+
+**Note:** `seed_demo_devices` maps the **first** token to **AC**, **second** to **PC**, **third** to **Fan/Lights**. After seeding, open **Monitoring** and select the device that matches the time range (e.g. 7d / 30d).
+
+---
+
+## Frontend Changes
 
 ## ⚡ **Most Common Changes (Copy-Paste Ready)**
 

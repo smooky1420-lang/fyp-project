@@ -1,15 +1,24 @@
 """
-Generate 1 year of synthetic hourly electricity usage and save to TelemetryReading.
+Generate ~1 year of synthetic hourly TelemetryReading data per device.
 
-Logic:
-  - Base load: 0.5 kWh per hour
-  - Peak hours (18:00–22:00): add 3.0 kWh
-  - Weekends: multiply total by 1.2
-  - Noise: numpy.random.normal for slight randomness
+Pakistani household model (3 devices typical):
+  - AC: ~5 kWh/day weekdays, ~7 kWh/day weekends (+2 kWh spike); concentrated
+        in evening hours so average power ≈ 1000 W when the AC is running.
+  - PC: ~1 kWh/day, daytime hours.
+  - Fan/Lights: ~0.5 kWh/day, spread across the day.
 
-Readings are stored per device (device has user). Uses voltage, current, power, energy_kwh, created_at.
+Combined daily total (before noise) is ~6.5 kWh (weekday) or ~8.5 kWh (weekend),
+i.e. within ~5–10 kWh. Seasonal ramp is capped so the household sum stays ≤ ~10 kWh/day.
 
-Run: python manage.py generate_synthetic_telemetry [--device-token TOKEN] [--user USER_ID] [--device DEVICE_ID]
+Also:
+  - ±15% multiplicative noise on every hourly reading
+  - +0.1% per calendar day seasonal factor (capped per weekday/weekend)
+
+Device role is inferred from device name + device_type (or use --role ac|pc|fan).
+
+Power (W) for each hour = hourly_kwh * 1000 (average power over that hour).
+
+Run: python manage.py generate_synthetic_telemetry [--device-token TOKEN] [--role ac|pc|fan]
 """
 from datetime import datetime, timedelta
 import numpy as np
@@ -21,37 +30,104 @@ from telemetry.models import TelemetryReading
 
 User = get_user_model()
 
-BASE_KWH = 0.5
-PEAK_EXTRA_KWH = 3.0
-PEAK_START_HOUR = 18
-PEAK_END_HOUR = 22  # exclusive: 18, 19, 20, 21
-WEEKEND_FACTOR = 1.2
-NOISE_SCALE = 0.1  # std dev for normal noise (kWh)
+# ±15% multiplicative noise per reading
+NOISE_PCT = 0.15
+# +0.1% per calendar day from series start
+SEASONAL_DAILY_RATE = 0.001
+# Combined household caps (kWh/day before noise): weekday ~6.5, weekend ~8.5
+CAP_WEEKDAY_COMBINED = 6.5
+CAP_WEEKEND_COMBINED = 8.5
+
 VOLTAGE = 230.0
-# SQLite allows ~999 bound params per statement; 6 fields per row → max ~166 rows. Use 100 to be safe.
 BULK_CHUNK = 100
 
+# Daily energy targets (kWh) before seasonal
+AC_KWH_WEEKDAY = 5.0
+AC_KWH_WEEKEND = 7.0  # +2 kWh vs weekday
+PC_KWH_DAY = 1.0
+FAN_KWH_DAY = 0.5
 
-def hourly_kwh_usage(dt: datetime, rng: np.random.Generator) -> float:
-    """Synthetic hourly usage in kWh: base + peak + weekend + noise."""
-    kwh = BASE_KWH
-    if PEAK_START_HOUR <= dt.hour < PEAK_END_HOUR:
-        kwh += PEAK_EXTRA_KWH
-    if dt.weekday() >= 5:  # Saturday=5, Sunday=6
-        kwh *= WEEKEND_FACTOR
-    kwh += rng.normal(0, NOISE_SCALE)
-    return max(0.01, float(kwh))
+
+def infer_device_role(device: Device) -> str:
+    text = f"{device.name} {device.device_type}".lower()
+    if any(k in text for k in ("ac", "air", "split", "cooler", "inverter ac")):
+        return "ac"
+    if any(k in text for k in ("pc", "computer", "laptop", "desktop")):
+        return "pc"
+    if any(k in text for k in ("fan", "light", "bulb", "lamp", "lights")):
+        return "fan"
+    return "generic"
+
+
+def seasonal_factor(day_index: int, is_weekend: bool) -> float:
+    """Ramp ~0.1%/day, capped so typical 3-device totals stay within ~10 kWh/day."""
+    s = 1.0 + SEASONAL_DAILY_RATE * max(0, day_index)
+    cap = CAP_WEEKEND_COMBINED / (AC_KWH_WEEKEND + PC_KWH_DAY + FAN_KWH_DAY) if is_weekend else CAP_WEEKDAY_COMBINED / (AC_KWH_WEEKDAY + PC_KWH_DAY + FAN_KWH_DAY)
+    return min(s, cap)
+
+
+def hour_weights(role: str, is_weekend: bool) -> np.ndarray:
+    """
+    24 weights summing to 1.0 for distributing daily kWh across hours.
+    """
+    w = np.zeros(24, dtype=float)
+    if role == "ac":
+        if is_weekend:
+            # 7 kWh in 7 evening hours → ~1 kWh/h → ~1000 W when on
+            for h in range(17, 24):
+                w[h] = 1.0 / 7.0
+        else:
+            # 5 kWh in 5 hours 18–22
+            for h in range(18, 23):
+                w[h] = 1.0 / 5.0
+    elif role == "pc":
+        # 1 kWh in 8 daytime hours
+        for h in range(9, 17):
+            w[h] = 1.0 / 8.0
+    elif role == "fan":
+        w[:] = 1.0 / 24.0
+    else:
+        # generic: small uniform
+        w[:] = 1.0 / 24.0
+    return w
+
+
+def daily_target_kwh_for_role(role: str, is_weekend: bool) -> float:
+    if role == "ac":
+        return AC_KWH_WEEKEND if is_weekend else AC_KWH_WEEKDAY
+    if role == "pc":
+        return PC_KWH_DAY
+    if role == "fan":
+        return FAN_KWH_DAY
+    return 0.5
+
+
+def hourly_kwh_for_device(
+    role: str,
+    hour: int,
+    is_weekend: bool,
+    day_index: int,
+    weights: np.ndarray,
+    rng: np.random.Generator,
+) -> float:
+    """kWh for this clock hour after seasonal scaling and ±15% noise."""
+    base_daily = daily_target_kwh_for_role(role, is_weekend)
+    seasonal = seasonal_factor(day_index, is_weekend)
+    daily_scaled = base_daily * seasonal
+    base_hour = daily_scaled * float(weights[hour])
+    noise = rng.uniform(1.0 - NOISE_PCT, 1.0 + NOISE_PCT)
+    return max(0.001, float(base_hour * noise))
 
 
 class Command(BaseCommand):
-    help = "Generate 1 year of synthetic hourly TelemetryReading data for a device."
+    help = "Generate synthetic hourly TelemetryReading data (PK household model)."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--device-token",
             type=str,
             default=None,
-            help="Device token (e.g. from Devices page). Find this device and store readings for it.",
+            help="Device token (e.g. from Devices page).",
         )
         parser.add_argument(
             "--user",
@@ -64,6 +140,13 @@ class Command(BaseCommand):
             type=int,
             default=None,
             help="Device ID to attach readings to. If omitted, uses first device or creates one.",
+        )
+        parser.add_argument(
+            "--role",
+            type=str,
+            choices=("ac", "pc", "fan", "auto"),
+            default="auto",
+            help="Device role: ac, pc, fan, or auto (infer from name/type).",
         )
         parser.add_argument(
             "--seed",
@@ -81,6 +164,7 @@ class Command(BaseCommand):
         device_token = options.get("device_token")
         user_id = options["user"]
         device_id = options["device"]
+        role_opt = options.get("role") or "auto"
         seed = options["seed"]
         rng = np.random.default_rng(seed)
 
@@ -123,13 +207,27 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.SUCCESS(f"Created device id={device.id} for user {user.username}."))
 
+        if role_opt == "auto":
+            role = infer_device_role(device)
+            if role == "generic":
+                self.stdout.write(
+                    self.style.WARNING(
+                        "Could not infer ac/pc/fan from name/type; using 'fan'-like low profile (0.5 kWh/day). "
+                        "Set --role ac|pc|fan if needed."
+                    )
+                )
+                role = "fan"
+        else:
+            role = role_opt
+
+        self.stdout.write(f"Device role for generation: {role}")
+
         if options.get("clear"):
             deleted, _ = TelemetryReading.objects.filter(device=device).delete()
             self.stdout.write(f"Cleared {deleted} existing readings for device id={device.id}.")
 
         tz = timezone.get_current_timezone()
         now = timezone.localtime(timezone.now(), tz)
-        # End at current hour so "last 24h" in the UI always includes the latest reading
         end = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         start = end - timedelta(days=365)
         total_hours = int((end - start).total_seconds() // 3600)
@@ -148,7 +246,12 @@ class Command(BaseCommand):
         created = 0
         ts = start
         while ts < end:
-            kwh = hourly_kwh_usage(ts, rng)
+            day_index = (ts.date() - start.date()).days
+            local_ts = timezone.localtime(ts, tz) if timezone.is_aware(ts) else ts
+            hour = local_ts.hour
+            is_weekend = local_ts.weekday() >= 5
+            w = hour_weights(role, is_weekend)
+            kwh = hourly_kwh_for_device(role, hour, is_weekend, day_index, w, rng)
             cumulative_kwh += kwh
             power_w = kwh * 1000.0
             voltage = VOLTAGE

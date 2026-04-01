@@ -31,11 +31,12 @@ The backend is divided into **3 logical sections**, each covering a distinct asp
 - **Purpose**: Device registration and management
 - **Files to Cover**:
   - `models.py`: 
-    - `Device` model (name, room, type, device_token)
+    - `Device` model (name, room, type, `device_token`, optional `relay_on`, power/daily limits, simple schedule fields for controllable devices)
     - `generate_device_token()`: UUID-based token generation
     - Foreign key relationship to User
   - `views.py`: 
-    - `DeviceViewSet`: CRUD operations (List, Create, Delete)
+    - `DeviceViewSet`: CRUD (List, Create, **Patch** for control/limits/schedule, Delete)
+    - `DeviceStateByTokenAPI`: `GET /api/devices/state-by-token/` for ESP32 using `X-DEVICE-TOKEN` (no JWT)
     - User-scoped queries (`filter(user=request.user)`)
   - `urls.py`: RESTful routing via Django Router
   - `serializers.py`: Device data transformation
@@ -45,6 +46,7 @@ The backend is divided into **3 logical sections**, each covering a distinct asp
   - ViewSet pattern (DRF)
   - Data isolation (users only see their devices)
   - Device registration workflow
+  - Optional remote control: relay state, limits, schedule; device polls state via token
 
 #### 3. **Configuration** (`config/`)
 - **Files to Cover**:
@@ -80,7 +82,7 @@ User Registration → Login (Get JWT) → Create Device → Get Device Token
 - **Files to Cover**:
   - `models.py`: 
     - `TelemetryReading` model
-    - Fields: `voltage`, `current`, `power`, `energy_kwh`, `created_at`
+    - Fields: `voltage`, `current`, `power`, `energy_kwh`, `created_at` (bulk synthetic data sets explicit timestamps)
     - Foreign key to Device
     - Database indexes for performance
   - `views.py`: 
@@ -121,6 +123,12 @@ ESP32 Uploads Data → Store in Database → Frontend Queries → Display Charts
 - `calc_today_kwh_for_device()`: Energy calculation algorithm
 - Query filtering with time ranges
 
+#### 3. **Synthetic data (management commands)** (`telemetry/management/commands/`)
+- **`generate_synthetic_telemetry`**: ~1 year of **hourly** readings per device; roles `ac` | `pc` | `fan` model a **Pakistani household** (AC ~5/7 kWh day/weekend, PC 1 kWh, fan/lights 0.5 kWh; ±15% noise; +0.1%/day seasonal cap; `power` = kWh in that hour × 1000 W).
+- **`seed_demo_devices`**: Runs generation for **three** device tokens in order **AC → PC → Fan** (matches demo hardware setup).
+
+**Demo flow**: `python manage.py seed_demo_devices` → then `python manage.py train_predictor` (see Member 3) for ML.
+
 ---
 
 ## 🧠 **MEMBER 3: Analytics & Smart Features**
@@ -137,7 +145,7 @@ ESP32 Uploads Data → Store in Database → Frontend Queries → Display Charts
   - `views.py`: 
     - `UserSettingsAPI`: Get/Update user tariff
     - `TariffCalculatorAPI`: **Calculate tariff based on usage**
-    - `MonthlyReportsAPI`: Generate 12-month reports
+    - `MonthlyReportsAPI`: Generate 12-month reports (includes `device_breakdown` and **`device_monthly_breakdown`** for per-month, per-device charts)
   - `urls.py`: Settings routes
 
 - **Key Concepts**:
@@ -145,7 +153,7 @@ ESP32 Uploads Data → Store in Database → Frontend Queries → Display Charts
   - Protection status logic (6-month history)
   - Monthly usage aggregation
   - Cost calculation
-  - Device breakdown analysis
+  - Device breakdown analysis (totals and per-month splits)
 
 #### 2. **Solar Module** (`solar/`)
 - **Purpose**: Solar panel integration and generation estimation
@@ -173,6 +181,19 @@ ESP32 Uploads Data → Store in Database → Frontend Queries → Display Charts
   - Savings calculation
   - Historical data storage
 
+#### 3. **Predictions module** (`predictions/`)
+- **Purpose**: ML-based usage forecasting and textual recommendations
+- **Files to Cover**:
+  - `services.py`: Daily feature construction, `predict_usage()` loads `models/predictor.joblib` (Random Forest)
+  - `views.py`: `UsagePredictionAPI`, `RecommendationsAPI`
+  - `management/commands/train_predictor.py`: Train from DB telemetry, save `predictor.joblib`
+  - `urls.py`: `/api/predictions/usage/`, `/api/predictions/recommendations/`
+- **Optional**: `validate_model.py` at backend root for offline metrics
+
+- **Key Concepts**:
+  - Model trained on **aggregated** daily usage; inference uses **current user** history + shared model file
+  - Recommendations use trends and peak-hour patterns (e.g. evening load)
+
 ### **Presentation Points for Member 3**:
 1. **Tariff Calculation**: 
    - Pakistan's tiered tariff structure
@@ -189,9 +210,14 @@ ESP32 Uploads Data → Store in Database → Frontend Queries → Display Charts
 
 3. **Analytics**:
    - Monthly reports generation
-   - Device breakdown analysis
+   - Device breakdown analysis (including per-month device splits)
    - Solar vs. grid energy split
    - Historical data management
+
+4. **Usage predictions**:
+   - Training pipeline (`train_predictor` → `predictor.joblib`)
+   - API contract for 7/30-day forecast vs actuals
+   - Recommendation types and when they appear
 
 ### **Demo Flow**:
 ```
@@ -232,6 +258,7 @@ Calculate Tariff → Generate Reports → Show Analytics
   - Tariff calculations (monthly usage)
   - Solar status (home power consumption)
   - Monthly reports (energy aggregation)
+  - **Training and inference** for usage predictions (`train_predictor`, `predict_usage`, recommendations)
 
 ### Member 1 → Member 3:
 - User authentication from Member 1 secures all Member 3 endpoints
@@ -272,11 +299,14 @@ Calculate Tariff → Generate Reports → Show Analytics
 ### Member 2:
 - `telemetry/models.py`, `telemetry/views.py`, `telemetry/urls.py`
 - `telemetry/serializers.py`
+- `telemetry/management/commands/generate_synthetic_telemetry.py`, `seed_demo_devices.py`
 
 ### Member 3:
 - `user_settings/models.py`, `user_settings/views.py`, `user_settings/urls.py`
 - `solar/models.py`, `solar/views.py`, `solar/urls.py`
 - `solar/weather_service.py`, `solar/solar_service.py`
+- `predictions/services.py`, `predictions/views.py`, `predictions/urls.py`
+- `predictions/management/commands/train_predictor.py`, `models/predictor.joblib` (artifact)
 
 ---
 
