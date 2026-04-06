@@ -1,12 +1,12 @@
 # SHEMS — Quick Project Summary (for group & report writing)
 
-Use this file as a **short reference** when writing the FYP report. For deep technical detail, see `ARCHITECTURE_SUMMARY.md` and `BACKEND_DIVISION.md`.
+Use this file as a **short reference** when writing the FYP report. For deep technical detail, see **`ARCHITECTURE_SUMMARY.md`** (and `DATABASE_SCHEMA_SUMMARY.md` for tables).
 
 ---
 
 ## What is SHEMS?
 
-**SHEMS (Smart Home Energy Management System)** is a web app that helps households **monitor electricity use**, **estimate costs** (Pakistan tariff logic), **optional solar** estimates, and **predict future usage** with a machine-learning model. Users register, add **smart meters / devices**, and view dashboards, charts, and reports.
+**SHEMS (Smart Home Energy Management System)** is a web app that helps households **monitor electricity use**, **estimate costs** (Pakistan tariff logic), **optional solar** estimates, and **predict future usage** with a machine-learning model. Users register, add **devices** (with per-device tokens for hardware uploads), and view dashboards, charts, and reports.
 
 ---
 
@@ -25,10 +25,10 @@ Use this file as a **short reference** when writing the FYP report. For deep tec
 ## Main features (what to describe in the report)
 
 1. **Accounts & security** — Register, login, JWT; each user only sees **their** devices and data.
-2. **Devices** — Register meters (name, room, type); optional **relay**, **power/daily limits**, **schedule**; ESP32 can **poll** `/api/devices/state-by-token/` with the device token.
+2. **Devices** — Register devices (name, room, type); collapsible add form when you already have devices; optional **relay**, **power/daily limits**, **schedule**; ESP32 can **poll** `/api/devices/state-by-token/` with the device token.
 3. **Telemetry** — Upload readings (voltage, current, power, cumulative `energy_kwh`); **Monitoring** page shows time-range charts per device.
 4. **Tariff & money** — User sets PKR/kWh; system uses **Pakistan-style** tier ideas + **protection** logic in the tariff calculator; **today** and **monthly** cost views.
-5. **Reports** — Monthly usage/cost; **per-device** breakdown and **per-month per-device** data for charts.
+5. **Reports** — Last 12 months usage/cost; month chips + dropdown; bar chart (kWh or cost, click bar to select month); selected-month spotlight vs previous month and vs average; sortable device table, share bars, cost donut; quick insights; CSV export (includes selected-month device rows when the API provides them).
 6. **Solar (optional)** — Config + weather-based **estimated** solar kW; grid import and savings hints.
 7. **Predictions** — Trained **Random Forest** predicts **next 7 or 30 days** daily kWh (and cost using tariff). Train with: `python manage.py train_predictor` (from `shems-backend`).
 8. **Recommendations** — **Data-based** tips only (e.g. month vs month change, biggest device, peak-hour usage, solar-related when relevant). No generic filler tips.
@@ -37,8 +37,8 @@ Use this file as a **short reference** when writing the FYP report. For deep tec
 
 ## How data flows (simple story)
 
-**Meter → API → database → same user’s browser (JWT).**  
-IoT devices send data **without** the user password, using the **device token**. The app never mixes two users’ devices.
+**Device / ESP32 → API → database → same user’s browser (JWT).**  
+Hardware sends data **without** the user password, using the **device token**. The app never mixes two users’ devices.
 
 ---
 

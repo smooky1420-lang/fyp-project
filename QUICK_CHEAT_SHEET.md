@@ -6,7 +6,7 @@
 |------|---------|
 | Run API | `python manage.py runserver` |
 | **Synthetic data** for one device | `python manage.py generate_synthetic_telemetry --device-token <TOKEN> --role ac` (or `pc`, `fan`) — add `--clear` to replace readings |
-| **Demo: all three meters** (AC → PC → Fan order) | `python manage.py seed_demo_devices` |
+| **Demo: three devices** (AC → PC → Fan order) | `python manage.py seed_demo_devices` |
 | **Train usage model** (after telemetry exists) | `python manage.py train_predictor` |
 | Optional model metrics | `python validate_model.py` |
 

@@ -478,5 +478,22 @@ def calculate_tariff(units, is_protected):
 
 ---
 
+## 12. Frontend application overview (current UI)
+
+High-level behavior of main React pages under `shems-frontend/src/pages/` (see also `FRONTEND_QUICK_REFERENCE.md`).
+
+| Area | Behavior |
+|------|----------|
+| **Dashboard** | Today’s home totals, live device status, **today-by-device** chips, and **`UsageChart`** (`src/components/UsageChart.tsx`) for day/week/month with rolling time windows aligned to the API. Styling uses indigo accents consistent with the rest of the app; stale/offline telemetry is handled in usage display. |
+| **Devices** | **Add device** is a collapsible section (collapsed when you already have devices; opens automatically if the list is empty). Per-device cards: token copy feedback, relay for controllable loads, **limits & schedule** with fixed-height labels/inputs so number and time fields align. |
+| **Reports** | Loads **`GET /api/settings/monthly-reports/`** once per visit. Summary stat cards, **selected-month** panel (energy/cost, vs previous month, vs 12-month average), **month chips** plus **dropdown**, bar chart with **kWh vs cost** toggle and **click bar** to select month. **By device**: sortable table, usage share bars, cost donut. **Quick insights**, solar vs grid (estimated), **CSV export** (includes selected-month device rows when `device_monthly_breakdown` is present). Tariff pill uses **`getUserSettings()`** with numeric coercion — Django may serialize `tariff_pkr_per_kwh` as a string. |
+| **Monitoring** | Per-device telemetry charts over a chosen range. |
+| **Predictions** | ML forecast vs recent actuals; model metadata when `predictor.joblib` is trained. |
+| **Settings / Solar / Alerts** | Tariff and calculator; solar config and status; alerts UI. |
+
+**Repository documentation (root):** `ARCHITECTURE_SUMMARY.md` (this file), `QUICK_CHEAT_SHEET.md`, `FRONTEND_QUICK_REFERENCE.md`, `PROJECT_REPORT_QUICK_SUMMARY.md`, `DATABASE_SCHEMA_SUMMARY.md`, `HARDWARE_CIRCUIT_GUIDE.md`.
+
+---
+
 This architecture provides a scalable, maintainable system for monitoring and managing home energy consumption with solar integration and intelligent tariff calculations.
 

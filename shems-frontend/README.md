@@ -41,6 +41,6 @@ npm run preview
 
 - `src/lib/api.ts` — Authenticated API client and types (devices, telemetry, settings, predictions, solar).
 - `src/pages/` — Dashboard, Monitoring, Devices, Predictions, Reports, Settings, etc.
-- `src/components/` — Layout (e.g. `AppShell`, `TopBar`), shared UI.
+- `src/components/` — Layout (`AppShell`, `TopBar`), **`UsageChart`** (Dashboard), and other shared UI.
 
-For architecture and backend commands (synthetic data, `train_predictor`), see the repo root **`ARCHITECTURE_SUMMARY.md`** and **`QUICK_CHEAT_SHEET.md`**.
+For architecture and backend commands (synthetic data, `train_predictor`), see the repo root **`ARCHITECTURE_SUMMARY.md`** and **`QUICK_CHEAT_SHEET.md`**. Frontend tips: **`FRONTEND_QUICK_REFERENCE.md`**.
