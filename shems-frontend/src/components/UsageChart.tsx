@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -19,6 +19,7 @@ type Point = {
   label: string;
   kwh: number;
   meta: string; // tooltip label
+  pctOfTotal: number; // share of energy in this chart window
 };
 
 type Bucket = {
@@ -59,28 +60,6 @@ function startOfHour(d: Date) {
   return x;
 }
 
-// Monday = 1 ... Sunday = 7
-function startOfWeekMonday(d: Date) {
-  const x = startOfDay(d);
-  const day = x.getDay(); // 0=Sun, 1=Mon
-  const diff = day === 0 ? -6 : 1 - day;
-  x.setDate(x.getDate() + diff);
-  return x;
-}
-
-function startOfMonth(d: Date) {
-  const x = startOfDay(d);
-  x.setDate(1);
-  return x;
-}
-
-function endOfMonth(d: Date) {
-  const x = startOfDay(d);
-  x.setMonth(x.getMonth() + 1, 1); // first of next month
-  x.setDate(1);
-  return x;
-}
-
 function startOfYear(d: Date) {
   const x = startOfDay(d);
   x.setMonth(0, 1);
@@ -110,9 +89,9 @@ function buildBuckets(range: ChartRange): { buckets: Bucket[] } {
   }
 
   if (range === "day") {
-    // today 00:00 -> 24:00
-    const start = startOfDay(now);
-    const stepMs = 60 * 60_000; // 1 hour
+    // Rolling last 24 hours (matches Dashboard fetch: isoFromHoursAgo(24))
+    const stepMs = 60 * 60_000;
+    const start = new Date(now.getTime() - 24 * stepMs);
 
     const buckets: Bucket[] = Array.from({ length: 24 }, (_, i) => {
       const a = new Date(start.getTime() + i * stepMs);
@@ -120,8 +99,8 @@ function buildBuckets(range: ChartRange): { buckets: Bucket[] } {
       return {
         start: a,
         end: b,
-        label: fmtTime.format(a), // 00:00 ... 23:00
-        meta: `${fmtTime.format(a)} - ${fmtTime.format(b)}`,
+        label: fmtTime.format(a),
+        meta: `${fmtTime.format(a)} – ${fmtTime.format(b)}`,
       };
     });
 
@@ -129,19 +108,21 @@ function buildBuckets(range: ChartRange): { buckets: Bucket[] } {
   }
 
   if (range === "week") {
-    // Monday -> Sunday (7 daily buckets)
-    const start = startOfWeekMonday(now);
+    // Rolling last 7 days including today (matches Dashboard: isoFromDaysAgo(7))
+    const endDay = startOfDay(now);
+    const startDay = new Date(endDay);
+    startDay.setDate(endDay.getDate() - 6);
 
     const buckets: Bucket[] = Array.from({ length: 7 }, (_, i) => {
-      const a = new Date(start);
-      a.setDate(start.getDate() + i);
+      const a = new Date(startDay);
+      a.setDate(startDay.getDate() + i);
       const b = new Date(a);
       b.setDate(a.getDate() + 1);
 
       return {
         start: a,
         end: b,
-        label: a.toLocaleDateString("en-GB", { weekday: "short" }), // Mon Tue ...
+        label: a.toLocaleDateString("en-GB", { weekday: "short" }),
         meta: fmtDate.format(a),
       };
     });
@@ -150,14 +131,14 @@ function buildBuckets(range: ChartRange): { buckets: Bucket[] } {
   }
 
   if (range === "month") {
-    // 1st -> end of current month
-    const start = startOfMonth(now);
-    const end = endOfMonth(now);
-    const days = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60_000));
+    // Rolling last 30 days (matches Dashboard: isoFromDaysAgo(30))
+    const endDay = startOfDay(now);
+    const startDay = new Date(endDay);
+    startDay.setDate(endDay.getDate() - 29);
 
-    const buckets: Bucket[] = Array.from({ length: days }, (_, i) => {
-      const a = new Date(start);
-      a.setDate(start.getDate() + i);
+    const buckets: Bucket[] = Array.from({ length: 30 }, (_, i) => {
+      const a = new Date(startDay);
+      a.setDate(startDay.getDate() + i);
       const b = new Date(a);
       b.setDate(a.getDate() + 1);
 
@@ -229,6 +210,7 @@ type CustomTooltipProps = {
     payload?: {
       meta?: string;
       kwh?: number;
+      pctOfTotal?: number;
     };
   }[];
 };
@@ -240,13 +222,20 @@ function TooltipContent({ active, payload }: CustomTooltipProps) {
 
   const meta = raw?.meta ?? "";
   const kwh = typeof raw?.kwh === "number" ? raw.kwh : null;
+  const pct = typeof raw?.pctOfTotal === "number" ? raw.pctOfTotal : null;
 
   return (
-    <div className="rounded-xl bg-white ring-1 ring-slate-200 shadow-sm px-3 py-2">
-      <div className="text-xs text-slate-600">{meta}</div>
-      <div className="text-sm font-semibold tabular-nums">
-        {kwh === null ? "--" : `${kwh.toFixed(4)} kWh`}
+    <div className="rounded-xl border border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-lg shadow-slate-200/50 backdrop-blur-sm">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+        {meta}
       </div>
+      <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+        {kwh === null ? "—" : kwh < 0.01 ? `${kwh.toFixed(4)}` : `${kwh.toFixed(3)}`}{" "}
+        <span className="text-sm font-medium text-slate-500">kWh</span>
+      </div>
+      {pct !== null && kwh !== null && kwh > 0 && (
+        <div className="mt-1 text-xs text-slate-500">{pct.toFixed(1)}% of energy in this view</div>
+      )}
     </div>
   );
 }
@@ -267,6 +256,9 @@ export default function UsageChart({
   subtitle?: string;
   rightAction?: React.ReactNode;
 }) {
+  const gradId = useId().replace(/:/g, "");
+  const fillGradientId = `kwhFill-${gradId}`;
+
   const { buckets } = useMemo(() => buildBuckets(range), [range]);
 
   const points: Point[] = useMemo(() => {
@@ -282,11 +274,18 @@ export default function UsageChart({
       for (let i = 0; i < total.length; i++) total[i] += sums[i];
     }
 
-    return buckets.map((b, i) => ({
-      label: b.label || String(i),
-      kwh: Number(total[i].toFixed(4)),
-      meta: b.meta || "",
-    }));
+    const sumWindow = total.reduce((s, v) => s + v, 0);
+
+    return buckets.map((b, i) => {
+      const kwh = Number(total[i].toFixed(4));
+      const pctOfTotal = sumWindow > 0 ? (kwh / sumWindow) * 100 : 0;
+      return {
+        label: b.label || String(i),
+        kwh,
+        meta: b.meta || "",
+        pctOfTotal,
+      };
+    });
   }, [readings, buckets]);
 
   const maxKwh = useMemo(() => {
@@ -294,19 +293,47 @@ export default function UsageChart({
     return Number.isFinite(m) ? m : 0;
   }, [points]);
 
+  const totalKwhInView = useMemo(
+    () => Number(points.reduce((s, p) => s + p.kwh, 0).toFixed(3)),
+    [points]
+  );
+
+  const yTickDecimals = maxKwh < 1 ? 3 : maxKwh < 10 ? 2 : 1;
+
+  const xAxisInterval =
+    range === "month" ? 2 : range === "day" ? 3 : range === "hour" ? 1 : "preserveEnd";
+
+  const chartBottom = range === "month" ? 28 : 8;
+
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="font-semibold">{title}</div>
-          <div className="text-sm text-slate-600">
-            {subtitle ? `${subtitle} • ` : ""}
+    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-base font-semibold text-slate-900">{title}</div>
+          <div className="mt-0.5 text-sm text-slate-600">
+            {subtitle ? <span className="text-slate-700">{subtitle}</span> : null}
+            {subtitle ? <span className="text-slate-300"> · </span> : null}
             <span className="font-medium text-slate-700">Energy (kWh)</span>
+            {range === "day" && (
+              <span className="text-slate-500"> · last 24 hours</span>
+            )}
+            {range === "week" && (
+              <span className="text-slate-500"> · last 7 days</span>
+            )}
+            {range === "month" && (
+              <span className="text-slate-500"> · last 30 days</span>
+            )}
+          </div>
+          <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1 text-xs text-slate-600 ring-1 ring-slate-100">
+            <span className="font-medium text-slate-500">Total in view</span>
+            <span className="font-semibold tabular-nums text-indigo-700">
+              {totalKwhInView.toFixed(3)} kWh
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-wrap justify-end gap-1.5">
             <Toggle active={range === "hour"} onClick={() => onRangeChange("hour")}>
               Hour
             </Toggle>
@@ -323,74 +350,82 @@ export default function UsageChart({
               Year
             </Toggle>
           </div>
-
-          {rightAction ? <div className="ml-2">{rightAction}</div> : null}
+          {rightAction ? <div className="flex justify-end">{rightAction}</div> : null}
         </div>
       </div>
 
-      <div className="mt-4 h-80">
+      <div className="mt-5 h-72 sm:h-80">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={points} margin={{ top: 10, right: 15, left: 10, bottom: 0 }}>
+          <LineChart
+            data={points}
+            margin={{ top: 8, right: 8, left: 4, bottom: chartBottom }}
+          >
             <defs>
-                <linearGradient id="kwhFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22c55e" stopOpacity={0.4} />
-                    <stop offset="70%" stopColor="#22c55e" stopOpacity={0.12} />
-                    <stop offset="100%" stopColor="#22c55e" stopOpacity={0.02} />
-                </linearGradient>
-                <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                <feMerge>
-                    <feMergeNode in="coloredBlur" />
-                    <feMergeNode in="SourceGraphic" />
-                </feMerge>
-                </filter>
-                </defs>
+              <linearGradient id={fillGradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+                <stop offset="55%" stopColor="#6366f1" stopOpacity={0.08} />
+                <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+              </linearGradient>
+            </defs>
 
-
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
 
             <XAxis
               dataKey="label"
               tickLine={false}
               axisLine={false}
-              interval={range === "month" ? 3 : "preserveEnd"}
-              tick={{ fill: "#64748b", fontSize: 12 }}
+              interval={xAxisInterval as number | "preserveEnd"}
+              tick={{
+                fill: "#64748b",
+                fontSize: 11,
+                ...(range === "month" ? { angle: -35, textAnchor: "end" } : {}),
+              }}
+              height={range === "month" ? 36 : undefined}
             />
 
             <YAxis
               tickLine={false}
               axisLine={false}
-              domain={[0, Math.max(0.01, maxKwh * 1.2)]}
-              tick={{ fill: "#64748b", fontSize: 12 }}
-              tickFormatter={(v: number) => v.toFixed(2)}
-              label={{ value: "kWh", angle: -90, position: "insideLeft", fill: "#64748b" }}
+              width={44}
+              domain={[0, (dataMax: number) => Math.max(0.01, dataMax * 1.15)]}
+              tick={{ fill: "#64748b", fontSize: 11 }}
+              tickFormatter={(v: number) => v.toFixed(yTickDecimals)}
+              label={{
+                value: "kWh",
+                angle: -90,
+                position: "insideLeft",
+                fill: "#94a3b8",
+                fontSize: 11,
+              }}
             />
 
-            <Tooltip content={<TooltipContent />} />
+            <Tooltip
+              content={<TooltipContent />}
+              cursor={{ stroke: "#c7d2fe", strokeWidth: 1, strokeDasharray: "4 4" }}
+            />
 
             <Area
-              type="monotoneX"
+              type="monotone"
               dataKey="kwh"
               stroke="none"
-              fill="url(#kwhFill)"
+              fill={`url(#${fillGradientId})`}
               isAnimationActive={false}
             />
 
-           <Line
-            type="monotoneX"
-            dataKey="kwh"
-            stroke="#22c55e"
-            strokeWidth={2.5}
-            filter="url(#glow)"
-            dot={false}
-            activeDot={{
-                r: 4,
-                stroke: "#22c55e",
-                strokeWidth: 1,
+            <Line
+              type="monotone"
+              dataKey="kwh"
+              stroke="#4f46e5"
+              strokeWidth={2.25}
+              dot={false}
+              activeDot={{
+                r: 5,
+                stroke: "#4f46e5",
+                strokeWidth: 2,
                 fill: "#ffffff",
-            }}
+              }}
+              isAnimationActive={false}
             />
-
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -411,10 +446,10 @@ function Toggle({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm ring-1 transition ${
+      className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ring-1 transition sm:text-sm sm:px-3 sm:py-2 ${
         active
-          ? "bg-slate-900 text-white ring-slate-900"
-          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+          ? "bg-indigo-600 text-white ring-indigo-600 shadow-sm"
+          : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 hover:text-slate-900"
       }`}
     >
       {children}

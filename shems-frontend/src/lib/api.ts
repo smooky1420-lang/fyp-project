@@ -209,7 +209,8 @@ export async function getTodaySummary(): Promise<TodaySummary> {
   return authFetch<TodaySummary>(`/api/telemetry/today-summary/`, { method: "GET" });
 }
 export type UserSettings = {
-  tariff_pkr_per_kwh: number;
+  /** API may send a number or a decimal string from Django. */
+  tariff_pkr_per_kwh: number | string;
   updated_at: string;
 };
 
@@ -275,10 +276,24 @@ export async function getMonthlyReports(): Promise<MonthlyReportsResult> {
 export type PredictionDay = {
   date: string;
   date_label: string;
-  predicted_usage_kwh: number;
-  predicted_cost_pkr: number;
+  predicted_usage_kwh?: number | null;
+  predicted_cost_pkr?: number | null;
   actual_usage_kwh?: number | null;
   actual_cost_pkr?: number | null;
+};
+
+/** Metrics saved when you run `python manage.py train_predictor` */
+export type PredictionModelInfo = {
+  trained_at?: string;
+  r2_test?: number;
+  mae_test_kwh?: number;
+  n_samples?: number;
+  n_train?: number;
+  n_test?: number;
+  algorithm?: string;
+  feature_description?: string;
+  feature_names?: string[];
+  note?: string;
 };
 
 export type UsagePredictionResult = {
@@ -286,6 +301,7 @@ export type UsagePredictionResult = {
   actuals: Array<{ date: string; date_label: string; actual_usage_kwh: number; actual_cost_pkr: number }>;
   message: string | null;
   period_days: number;
+  model_info: PredictionModelInfo | null;
 };
 
 export type Recommendation = {

@@ -13,11 +13,11 @@
 #include <Preferences.h>
 
 // ---- EDIT THESE ----
-const char *WIFI_SSID = "YOUR_WIFI_SSID";
-const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* ssid = "RIXA";
+const char* password = "123456789";
 
 // Paste from SHEMS web app → Devices → device token
-const char *DEVICE_TOKEN = "paste_your_32_or_64_char_token_here";
+const char *DEVICE_TOKEN = "e7a6e7f58f8d4d1c8d5f48c295394478";
 
 // PC running Django (not 127.0.0.1 — use LAN IP, e.g. 192.168.1.50)
 const char *SERVER_HOST = "192.168.1.50";

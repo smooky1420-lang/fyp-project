@@ -2,7 +2,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
-from .services import predict_usage, get_recommendations, get_daily_usage_history
+from .services import (
+    predict_usage,
+    get_recommendations,
+    get_daily_usage_history,
+    get_model_meta,
+)
 
 
 class UsagePredictionAPI(APIView):
@@ -46,6 +51,7 @@ class UsagePredictionAPI(APIView):
             "actuals": actuals,
             "message": message,
             "period_days": period_days,
+            "model_info": get_model_meta(),
         })
 
 

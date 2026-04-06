@@ -34,6 +34,25 @@ def _get_model():
         return None
 
 
+def get_model_meta():
+    """
+    Metadata stored at train time (for UI / report). None if no model or old file without meta.
+    """
+    payload = _get_model()
+    if not payload:
+        return None
+    meta = payload.get("meta")
+    if not meta:
+        return {
+            "algorithm": "RandomForestRegressor",
+            "feature_names": payload.get("feature_names", []),
+            "note": "Re-run train_predictor to record R², MAE, and trained_at.",
+        }
+    out = dict(meta)
+    out["feature_names"] = payload.get("feature_names", [])
+    return out
+
+
 def calc_kwh_in_range(device, start_dt, end_dt):
     """Total kWh for one device in [start_dt, end_dt) using positive deltas."""
     readings = (
@@ -87,19 +106,19 @@ def get_daily_usage_history(user, days=60):
 
 def _predict_with_model(user, period_days, history):
     """
-    Use loaded .joblib model to predict next period_days. Requires at least one day
-    with usage for prev_day_usage. Returns list of dicts or None if not applicable.
+    Use loaded .joblib model to predict next period_days.
+    Supports legacy 4-feature models and current 6-feature models (with 7-day mean).
     """
     payload = _get_model()
     if payload is None:
         return None
     model = payload["model"]
+    feature_names = payload.get("feature_names") or []
     ref_date_str = payload.get("ref_date", "2020-01-01")
     try:
         ref_date = datetime.strptime(ref_date_str, "%Y-%m-%d").date()
     except ValueError:
         return None
-    # Need at least one day with usage for lag
     usage_days = [d for d in history if d["kwh"] is not None and d["kwh"] >= 0]
     if not usage_days:
         return None
@@ -111,18 +130,39 @@ def _predict_with_model(user, period_days, history):
     now = timezone.localtime(timezone.now(), tz)
     tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
+    use_extended = len(feature_names) >= 6 and "mean_7_kwh" in feature_names
+
+    hist_kwh = [float(d["kwh"]) for d in history]
+    if use_extended:
+        window = hist_kwh[-7:]
+        if len(window) < 7:
+            pad = window[0] if window else float(last_usage)
+            window = [pad] * (7 - len(window)) + list(window)
+        prev_kwh = hist_kwh[-1] if hist_kwh else float(last_usage)
+    else:
+        window = None
+        prev_kwh = float(last_usage)
+
     predictions = []
-    prev_kwh = last_usage
     for i in range(period_days):
         d = tomorrow + timedelta(days=i)
         dt = d.date()
         day_of_week = dt.weekday()
         is_weekend = 1 if day_of_week >= 5 else 0
         day_index = (dt - ref_date).days
-        X = np.array([[day_of_week, is_weekend, day_index, prev_kwh]])
+        if use_extended:
+            mean_7 = sum(window) / 7.0
+            month = dt.month
+            X = np.array(
+                [[day_of_week, is_weekend, day_index, prev_kwh, mean_7, month]]
+            )
+        else:
+            X = np.array([[day_of_week, is_weekend, day_index, prev_kwh]])
         pred = float(model.predict(X)[0])
         pred = max(0.0, pred)
         prev_kwh = pred
+        if use_extended:
+            window = window[1:] + [pred]
         cost = round(pred * tariff, 2)
         predictions.append({
             "date": dt.isoformat(),
@@ -156,7 +196,10 @@ def predict_usage(user, period_days=7):
 
     model_preds = _predict_with_model(user, period_days, history)
     if not model_preds:
-        return [], "Prediction model could not generate values for this user yet."
+        return [], (
+            "Prediction model could not generate values for this user yet. "
+            "If you recently retrained with new features, ensure the loaded .joblib matches."
+        )
     return model_preds, None
 
 
