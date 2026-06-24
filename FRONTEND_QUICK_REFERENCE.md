@@ -1,5 +1,10 @@
 # Frontend Quick Reference Guide - Exam Tips
 
+**Shell / npm / Django commands** → **`QUICK_CHEAT_SHEET.md`**  
+**What we changed recently** → **`LAST_UPDATE.md`**
+
+**UI brand:** **WattGuard** (FYP project name in reports may still be SHEMS).
+
 ## 🎯 **Common Changes You Might Be Asked to Make**
 
 This guide helps you quickly make common frontend modifications during your exam/presentation.
@@ -10,16 +15,18 @@ This guide helps you quickly make common frontend modifications during your exam
 
 | Page | File | Notes |
 |------|------|--------|
-| Dashboard | `Dashboard.tsx` | Today totals, live status, today-by-device chips, **`UsageChart`** (day/week/month, rolling windows) |
-| Monitoring | `Monitoring.tsx` | Per-device telemetry charts — pick **device** + range (7d/30d) |
-| Devices | `Devices.tsx` | Collapsible **Add device**; CRUD; relay; limits/schedule (aligned fields); **Copy** token for ESP32 |
-| Predictions | `Predictions.tsx` | ML forecast + actuals (`/api/predictions/usage/`), model info when trained |
-| Reports | `Reports.tsx` | 12-mo stats; month **chips + dropdown**; bar chart **kWh/cost** toggle, **click bar** to select month; sortable device table + bars + donut; insights; CSV; tariff from settings (coerce number if string) |
-| Settings | `Settings.tsx` | Tariff, calculator |
-| Solar | `Solar.tsx` | Config, live status, savings |
-| Alerts | `Alerts.tsx` | Alerts / notifications UI |
+| Dashboard | `Dashboard.tsx` | Today totals, live status, chips, **UsageChart**, **energy tips**, solar card |
+| Monitoring | `Monitoring.tsx` | Per-device or **home total** charts; export CSV |
+| Devices | `Devices.tsx` | Collapsible add; CRUD; relay; limits/schedule; copy token |
+| Predictions | `Predictions.tsx` | ML forecast + recommendations |
+| Reports | `Reports.tsx` | 12-mo stats, month picker, device table, CSV |
+| Settings | `Settings.tsx` | Tariff, **use & save** calculator, solar |
+| Solar | `Solar.tsx` | Status, history, weather source hint |
+| Alerts | `Alerts.tsx` | Live API alerts; filters; auto-refresh |
+| **Help** | `Help.tsx` | **End-user guide** at `/help` — no dev commands |
+| Auth guard | `ProtectedRoute.tsx` | Wraps logged-in routes in `App.tsx` |
 
-Shared API calls live in **`src/lib/api.ts`** (devices, telemetry, settings, predictions, solar). Shared chart: **`src/components/UsageChart.tsx`** (Dashboard).
+Shared API: **`src/lib/api.ts`** · Alerts: **`src/lib/alerts.ts`** · Chart: **`UsageChart.tsx`**
 
 ---
 

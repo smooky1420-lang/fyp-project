@@ -2,17 +2,64 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 export type Tokens = { access: string; refresh: string };
 
+function tokenStorage(): Storage {
+  return sessionStorage.getItem("access") ? sessionStorage : localStorage;
+}
+
 export function setTokens(t: Tokens) {
   localStorage.setItem("access", t.access);
   localStorage.setItem("refresh", t.refresh);
+  sessionStorage.removeItem("access");
+  sessionStorage.removeItem("refresh");
 }
+
+export function setSessionTokens(t: Tokens) {
+  sessionStorage.setItem("access", t.access);
+  sessionStorage.setItem("refresh", t.refresh);
+  localStorage.removeItem("access");
+  localStorage.removeItem("refresh");
+}
+
 export function getAccess() {
   return sessionStorage.getItem("access") || localStorage.getItem("access");
+}
+
+function getRefresh() {
+  return sessionStorage.getItem("refresh") || localStorage.getItem("refresh");
 }
 
 export function clearTokens() {
   localStorage.removeItem("access");
   localStorage.removeItem("refresh");
+  sessionStorage.removeItem("access");
+  sessionStorage.removeItem("refresh");
+}
+
+function storeAccessToken(access: string, refresh?: string) {
+  const storage = tokenStorage();
+  storage.setItem("access", access);
+  if (refresh) storage.setItem("refresh", refresh);
+}
+
+async function tryRefreshToken(): Promise<boolean> {
+  const refresh = getRefresh();
+  if (!refresh) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh }),
+    });
+
+    if (!res.ok) return false;
+
+    const data = (await res.json()) as { access: string; refresh?: string };
+    storeAccessToken(data.access, data.refresh);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function extractErrorMessage(data: unknown): string | null {
@@ -103,12 +150,20 @@ export type Device = {
 export type DeviceUpdate = Partial<Pick<Device, "name" | "room" | "device_type" | "is_controllable" | "relay_on" | "power_limit_w" | "daily_energy_limit_kwh" | "schedule_enabled" | "schedule_on_time" | "schedule_off_time">>;
 
 async function authFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const token = getAccess();
-  const headers = new Headers(init?.headers || {});
-  headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const doFetch = async () => {
+    const token = getAccess();
+    const headers = new Headers(init?.headers || {});
+    headers.set("Content-Type", "application/json");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(`${API_BASE}${path}`, { ...init, headers });
+  };
 
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  let res = await doFetch();
+
+  if (res.status === 401 && getRefresh()) {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) res = await doFetch();
+  }
 
   const text = await res.text();
   let data: unknown = null;
@@ -120,12 +175,8 @@ async function authFetch<T = unknown>(path: string, init?: RequestInit): Promise
   }
 
   if (!res.ok) {
-    // handle DRF {detail:"..."} or plain string
-    if (typeof data === "object" && data !== null && "detail" in data) {
-      const d = (data as { detail?: unknown }).detail;
-      if (typeof d === "string") throw new Error(d);
-    }
-    throw new Error("Request failed");
+    const msg = extractErrorMessage(data) || text || "Request failed";
+    throw new Error(msg);
   }
 
   return data as T;
@@ -334,8 +385,11 @@ export type SolarStatus = {
   home_kw: number;
   grid_import_kw: number;
   savings_today_pkr: number;
+  today_home_kwh?: number;
+  estimated_solar_kwh_today?: number;
   cloud_cover: number;
   source: string;
+  weather_source?: string;
 };
 
 export type SolarHistoryPoint = {
@@ -363,6 +417,20 @@ export async function updateSolarConfig(input: {
 
 export async function getSolarStatus(): Promise<SolarStatus> {
   return authFetch<SolarStatus>("/api/solar/status/", { method: "GET" });
+}
+
+export async function getLiveAlerts(): Promise<
+  Array<{
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    created_at: string;
+    read: boolean;
+    device_id?: number;
+  }>
+> {
+  return authFetch("/api/alerts/", { method: "GET" });
 }
 
 export async function getSolarHistory(

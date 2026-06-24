@@ -6,6 +6,7 @@ import {
   listDevices,
   type Device,
   getTelemetryRange,
+  getLatestTelemetry,
   type TelemetryReading,
 } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
@@ -19,16 +20,32 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Brush,
 } from "recharts";
-import { Download, History, Loader2, Zap } from "lucide-react";
-import StatCard from "../components/StatCard";
+import {
+  Download,
+  Loader2,
+  Zap,
+  Gauge,
+  Activity,
+  Home,
+  BarChart3,
+  RefreshCw,
+  PlusCircle,
+  Wifi,
+} from "lucide-react";
 
 type Preset = "1h" | "24h" | "7d" | "30d" | "custom";
 type Metric = "power" | "voltage" | "current" | "energy";
 
+const PRESET_LABELS: Record<Preset, string> = {
+  "1h": "Last hour",
+  "24h": "Last 24 hours",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  custom: "Custom range",
+};
+
 function toLocalInputValue(d: Date) {
-  // yyyy-MM-ddTHH:mm (for <input type="datetime-local" />)
   const pad = (n: number) => String(n).padStart(2, "0");
   return (
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
@@ -37,7 +54,6 @@ function toLocalInputValue(d: Date) {
 }
 
 function fromLocalInputValue(v: string): Date | null {
-  // v is "yyyy-MM-ddTHH:mm"
   if (!v) return null;
   const d = new Date(v);
   return Number.isFinite(d.getTime()) ? d : null;
@@ -60,6 +76,13 @@ function calcUsageKwh(readings: TelemetryReading[]): number {
     if (Number.isFinite(delta) && delta > 0) total += delta;
   }
   return total;
+}
+
+function latestIsOffline(latest: TelemetryReading | null, offlineSeconds = 120) {
+  if (!latest) return true;
+  const t = new Date(latest.created_at).getTime();
+  if (!Number.isFinite(t)) return true;
+  return Date.now() - t > offlineSeconds * 1000;
 }
 
 function downloadCsv(filename: string, rows: Array<Record<string, string | number>>) {
@@ -103,7 +126,7 @@ const fmtLong = new Intl.DateTimeFormat("en-GB", {
 });
 
 type ChartPoint = {
-  t: number; // ms
+  t: number;
   time: string;
   voltage: number;
   current: number;
@@ -111,28 +134,41 @@ type ChartPoint = {
   energy_kwh: number;
 };
 
+const metricColors: Record<Metric, string> = {
+  power: "#6366f1",
+  voltage: "#3b82f6",
+  current: "#f59e0b",
+  energy: "#8b5cf6",
+};
+
+const inputClass =
+  "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20";
+
 export default function Monitoring() {
   const nav = useNavigate();
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceId, setDeviceId] = useState<number | "home" | null>(null);
+  const [liveLatest, setLiveLatest] = useState<TelemetryReading | null>(null);
 
   const [preset, setPreset] = useState<Preset>("24h");
-  const [fromLocal, setFromLocal] = useState<string>(() => toLocalInputValue(new Date(Date.now() - 24 * 60 * 60_000)));
+  const [fromLocal, setFromLocal] = useState<string>(() =>
+    toLocalInputValue(new Date(Date.now() - 24 * 60 * 60_000))
+  );
   const [toLocal, setToLocal] = useState<string>(() => toLocalInputValue(new Date()));
   const [metric, setMetric] = useState<Metric>("power");
 
   const [items, setItems] = useState<TelemetryReading[]>([]);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [tableOpen, setTableOpen] = useState(false);
 
-  // Load devices on mount
   useEffect(() => {
     (async () => {
       try {
         const d = await listDevices();
         setDevices(d);
-        setDeviceId("home"); // Default to home total
+        setDeviceId("home");
       } catch {
         clearTokens();
         nav("/login");
@@ -140,7 +176,6 @@ export default function Monitoring() {
     })();
   }, [nav]);
 
-  // Apply preset -> updates from/to local
   useEffect(() => {
     if (preset === "custom") return;
     const now = new Date();
@@ -170,62 +205,77 @@ export default function Monitoring() {
       const d = fromLocalInputValue(toLocal);
       return d ? d.toISOString() : undefined;
     }
-    return undefined; // "now"
+    return undefined;
   }, [preset, toLocal]);
 
   async function aggregateHomeTotal(allReadings: TelemetryReading[][]): Promise<TelemetryReading[]> {
-    if (!allReadings.length || !allReadings[0]?.length) return [];
+    if (!allReadings.length) return [];
 
-    // Create a map of timestamp -> aggregated reading
-    const timeMap = new Map<number, {
-      count: number;
-      voltage: number;
-      current: number;
-      power: number;
-      energy_kwh: number;
-      created_at: string;
-    }>();
+    const flat = allReadings.flat();
+    if (!flat.length) return [];
 
-    // Collect all readings and group by time (rounded to nearest 5 seconds for aggregation)
-    for (const deviceReadings of allReadings) {
-      for (const reading of deviceReadings) {
-        const t = new Date(reading.created_at).getTime();
-        const rounded = Math.round(t / 5000) * 5000; // Round to 5-second buckets
-
-        if (!timeMap.has(rounded)) {
-          timeMap.set(rounded, {
-            count: 0,
-            voltage: 0,
-            current: 0,
-            power: 0,
-            energy_kwh: 0,
-            created_at: reading.created_at,
-          });
-        }
-
-        const agg = timeMap.get(rounded)!;
-        agg.count++;
-        agg.voltage += reading.voltage;
-        agg.current += reading.current;
-        agg.power += reading.power;
-        agg.energy_kwh += reading.energy_kwh;
+    const timeMap = new Map<
+      number,
+      {
+        count: number;
+        voltage: number;
+        current: number;
+        power: number;
+        created_at: string;
       }
+    >();
+
+    for (const reading of flat) {
+      const t = new Date(reading.created_at).getTime();
+      const rounded = Math.round(t / 5000) * 5000;
+
+      if (!timeMap.has(rounded)) {
+        timeMap.set(rounded, {
+          count: 0,
+          voltage: 0,
+          current: 0,
+          power: 0,
+          created_at: reading.created_at,
+        });
+      }
+
+      const agg = timeMap.get(rounded)!;
+      agg.count++;
+      agg.voltage += reading.voltage;
+      agg.current += reading.current;
+      agg.power += reading.power;
     }
 
-    // Convert to TelemetryReading format
-    const aggregated: TelemetryReading[] = Array.from(timeMap.entries())
+    const perDeviceLast = new Map<number, number>();
+    let cumulativeHomeKwh = 0;
+    const energyByBucket = new Map<number, number>();
+
+    const sorted = [...flat].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+
+    for (const reading of sorted) {
+      const last = perDeviceLast.get(reading.device);
+      if (last !== undefined) {
+        const delta = reading.energy_kwh - last;
+        if (Number.isFinite(delta) && delta > 0) cumulativeHomeKwh += delta;
+      }
+      perDeviceLast.set(reading.device, reading.energy_kwh);
+      const rounded = Math.round(new Date(reading.created_at).getTime() / 5000) * 5000;
+      energyByBucket.set(rounded, cumulativeHomeKwh);
+    }
+
+    return Array.from(timeMap.entries())
       .map(([t, agg]) => ({
-        id: t, // Use timestamp as ID
-        device: 0, // Placeholder for home total
-        voltage: agg.voltage / agg.count, // Average voltage
-        current: agg.current, // Sum current
-        power: agg.power, // Sum power
-        energy_kwh: agg.energy_kwh, // Sum energy
+        id: t,
+        device: 0,
+        voltage: agg.voltage / agg.count,
+        current: agg.current,
+        power: agg.power,
+        energy_kwh: energyByBucket.get(t) ?? 0,
         created_at: new Date(t).toISOString(),
       }))
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-
-    return aggregated;
   }
 
   async function fetchData(opts?: { appendOlder?: boolean }) {
@@ -237,7 +287,6 @@ export default function Monitoring() {
       let data: TelemetryReading[];
 
       if (deviceId === "home") {
-        // Fetch from all devices and aggregate
         const allPromises = devices.map((d) => getTelemetryRange(d.id, fromISO, toISO, 2000));
         const allReadings = await Promise.all(allPromises);
         data = await aggregateHomeTotal(allReadings);
@@ -245,9 +294,7 @@ export default function Monitoring() {
         data = await getTelemetryRange(deviceId, fromISO, toISO, 2000);
       }
 
-      // Range API already returns ascending time
       if (opts?.appendOlder && items.length) {
-        // merge unique by id (avoid duplicates)
         const existing = new Set(items.map((x) => x.id));
         const merged = [...data.filter((x) => !existing.has(x.id)), ...items];
         setItems(merged);
@@ -261,12 +308,56 @@ export default function Monitoring() {
     }
   }
 
-  // Auto fetch whenever filters change
   useEffect(() => {
     if (!deviceId || (deviceId === "home" && !devices.length)) return;
     fetchData().catch(() => void 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, fromISO, toISO, devices.length]);
+
+  useEffect(() => {
+    if (!deviceId || (deviceId === "home" && !devices.length)) return;
+    let alive = true;
+
+    async function pollLive() {
+      const id = deviceId;
+      if (!id) return;
+      try {
+        if (id === "home") {
+          const readings = await Promise.all(
+            devices.map(async (d) => {
+              try {
+                return await getLatestTelemetry(d.id);
+              } catch {
+                return null;
+              }
+            })
+          );
+          const valid = readings.filter((r): r is TelemetryReading => r != null);
+          if (!alive || !valid.length) {
+            if (alive) setLiveLatest(null);
+            return;
+          }
+          const newest = valid.reduce((a, b) =>
+            new Date(a.created_at) > new Date(b.created_at) ? a : b
+          );
+          const totalPower = valid.reduce((s, r) => s + (r.power ?? 0), 0);
+          setLiveLatest({ ...newest, power: totalPower });
+        } else {
+          const r = await getLatestTelemetry(id);
+          if (alive) setLiveLatest(r);
+        }
+      } catch {
+        if (alive) setLiveLatest(null);
+      }
+    }
+
+    pollLive();
+    const t = setInterval(pollLive, 5000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [deviceId, devices]);
 
   const chartData: ChartPoint[] = useMemo(() => {
     return items.map((r) => {
@@ -283,7 +374,7 @@ export default function Monitoring() {
   }, [items]);
 
   const selectedDevice = useMemo(() => {
-    if (deviceId === "home") return { id: 0, name: "Home Total", room: "" };
+    if (deviceId === "home") return { id: 0, name: "All devices", room: "" };
     return devices.find((d) => d.id === deviceId) ?? null;
   }, [devices, deviceId]);
 
@@ -295,315 +386,460 @@ export default function Monitoring() {
     const min = Math.min(...powers);
     const max = Math.max(...powers);
 
-    const used = calcUsageKwh(items);
-
     return {
       avgW: avg,
       minW: min,
       maxW: max,
-      usedKwh: used,
-      first: items[0]?.created_at,
-      last: items[items.length - 1]?.created_at,
+      usedKwh: calcUsageKwh(items),
     };
   }, [items]);
 
   const yLabel = metric === "power" ? "W" : metric === "voltage" ? "V" : metric === "current" ? "A" : "kWh";
-  const lineKey = metric === "power" ? "power" : metric === "voltage" ? "voltage" : metric === "current" ? "current" : "energy_kwh";
-  const lineName = metric === "power" ? "Power" : metric === "voltage" ? "Voltage" : metric === "current" ? "Current" : "Energy (cumulative)";
+  const lineKey =
+    metric === "power" ? "power" : metric === "voltage" ? "voltage" : metric === "current" ? "current" : "energy_kwh";
+  const lineName =
+    metric === "power"
+      ? "Power"
+      : metric === "voltage"
+        ? "Voltage"
+        : metric === "current"
+          ? "Current"
+          : deviceId === "home"
+            ? "Home energy"
+            : "Energy";
 
   const latestFirst = useMemo(() => [...items].reverse(), [items]);
+  const isLive = !latestIsOffline(liveLatest);
+  const liveKw = liveLatest?.power != null ? liveLatest.power / 1000 : null;
 
-  const metricColors: Record<Metric, string> = {
-    power: "#22c55e",
-    voltage: "#3b82f6",
-    current: "#f59e0b",
-    energy: "#8b5cf6",
-  };
+  function exportCsv() {
+    const rows = items.map((r) => ({
+      id: r.id,
+      created_at: r.created_at,
+      voltage: r.voltage,
+      current: r.current,
+      power: r.power,
+      energy_kwh: r.energy_kwh,
+    }));
+    const name = selectedDevice?.name?.replace(/\s+/g, "_") || "device";
+    downloadCsv(`telemetry_${name}.csv`, rows);
+  }
+
+  if (!devices.length && deviceId !== null) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-6xl">
+          <div className="relative overflow-hidden rounded-3xl border border-dashed border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-10 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30">
+              <Activity className="h-7 w-7" />
+            </div>
+            <p className="mt-5 text-lg font-semibold text-slate-900">No meters to monitor</p>
+            <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+              Add a device first, then come back here for detailed charts and history.
+            </p>
+            <button
+              type="button"
+              onClick={() => nav("/devices")}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold shadow-md shadow-indigo-500/25 hover:bg-indigo-500 transition-colors"
+            >
+              <PlusCircle className="h-4 w-4" />
+              Add a device
+            </button>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
-      {/* Device Selector & Quick Actions */}
-      <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm text-slate-600">Device</div>
-            {devices.length > 1 && (
-              <p className="text-xs text-amber-700 mt-0.5">
-              </p>
-            )}
-            <select
-              className="mt-1 w-full sm:w-96 rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-              value={deviceId === "home" ? "home" : deviceId ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                setDeviceId(val === "home" ? "home" : Number(val));
-              }}
-              disabled={!devices.length}
+      <div className="mx-auto max-w-6xl space-y-6">
+        {msg && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+            {msg}
+            <button
+              type="button"
+              className="ml-3 font-medium text-red-700 underline hover:no-underline"
+              onClick={() => setMsg(null)}
             >
-              <option value="home">🏠 Home Total (All Sensors)</option>
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} {d.room ? `(${d.room})` : ""}
-                </option>
-              ))}
-            </select>
+              Dismiss
+            </button>
           </div>
+        )}
+
+        {/* Hero */}
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 text-white shadow-xl shadow-indigo-900/20">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 left-1/4 h-48 w-48 rounded-full bg-violet-500/15 blur-3xl" />
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-indigo-200">Live monitoring</p>
+                <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">
+                  {selectedDevice?.name ?? "Monitoring"}
+                </h1>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                      isLive
+                        ? "bg-emerald-500/20 text-emerald-100 ring-1 ring-emerald-400/30"
+                        : "bg-amber-500/20 text-amber-100 ring-1 ring-amber-400/30"
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${isLive ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`}
+                    />
+                    {isLive ? "Live" : "Waiting for data"}
+                  </span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-indigo-100 ring-1 ring-white/10">
+                    {PRESET_LABELS[preset]}
+                  </span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-indigo-100 ring-1 ring-white/10">
+                    {lineName}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchData().catch(() => void 0)}
+                  disabled={loading || deviceId === null}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={exportCsv}
+                  disabled={!items.length}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Live power</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {liveKw != null ? liveKw.toFixed(2) : "—"}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kW</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Avg in range</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {summary ? (summary.avgW / 1000).toFixed(2) : "—"}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kW</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Used in range</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {summary ? summary.usedKwh.toFixed(2) : "—"}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kWh</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Peak power</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {summary ? (summary.maxW / 1000).toFixed(2) : "—"}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kW</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Meter picker */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+              <Gauge className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-slate-900">Select meter</h2>
+              <p className="text-xs text-slate-500">Choose what to chart below</p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => setDeviceId("home")}
+              className={`rounded-xl border p-4 text-left transition-all ${
+                deviceId === "home"
+                  ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/25"
+                  : "border-slate-200 bg-slate-50/50 hover:border-indigo-200 hover:bg-white"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Home className={`h-4 w-4 ${deviceId === "home" ? "text-indigo-100" : "text-slate-500"}`} />
+                <p className="text-sm font-semibold">All devices</p>
+              </div>
+              <p className={`mt-1 text-xs ${deviceId === "home" ? "text-indigo-200" : "text-slate-500"}`}>
+                Combined home load
+              </p>
+            </button>
+            {devices.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => setDeviceId(d.id)}
+                className={`rounded-xl border p-4 text-left transition-all ${
+                  deviceId === d.id
+                    ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/25"
+                    : "border-slate-200 bg-slate-50/50 hover:border-indigo-200 hover:bg-white"
+                }`}
+              >
+                <p className="truncate text-sm font-semibold">{d.name}</p>
+                <p className={`mt-1 text-xs truncate ${deviceId === d.id ? "text-indigo-200" : "text-slate-500"}`}>
+                  {d.room || "No room"} · {d.device_type || "Meter"}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Filters */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">Time range</p>
+              <div className="flex flex-wrap gap-2">
+                {(["1h", "24h", "7d", "30d", "custom"] as Preset[]).map((p) => (
+                  <FilterPill key={p} active={preset === p} onClick={() => setPreset(p)}>
+                    {p === "custom" ? "Custom" : p}
+                  </FilterPill>
+                ))}
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 mb-2">Metric</p>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["power", "Power"],
+                    ["voltage", "Voltage"],
+                    ["current", "Current"],
+                    ["energy", "Energy"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <FilterPill key={key} active={metric === key} onClick={() => setMetric(key)}>
+                    {label}
+                  </FilterPill>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {preset === "custom" && (
+            <div className="mt-5 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-medium text-slate-600">From</label>
+                <input
+                  type="datetime-local"
+                  className={inputClass}
+                  value={fromLocal}
+                  onChange={(e) => setFromLocal(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">To</label>
+                <input
+                  type="datetime-local"
+                  className={inputClass}
+                  value={toLocal}
+                  onChange={(e) => setToLocal(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Chart */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex items-center gap-3">
+            <span
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-md"
+              style={{ backgroundColor: metricColors[metric], boxShadow: `0 4px 14px ${metricColors[metric]}40` }}
+            >
+              <BarChart3 className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-slate-900">{lineName} over time</h2>
+              <p className="text-xs text-slate-500">
+                {items.length
+                  ? `${items.length.toLocaleString()} readings · ${summary ? `${summary.minW.toFixed(0)}–${summary.maxW.toFixed(0)} W range` : ""}`
+                  : "No data for this selection yet"}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-80 sm:h-96">
+            {chartData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 10, right: 15, left: 10, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={`monitoring-${metric}Fill`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={metricColors[metric]} stopOpacity={0.35} />
+                      <stop offset="70%" stopColor={metricColors[metric]} stopOpacity={0.1} />
+                      <stop offset="100%" stopColor={metricColors[metric]} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="t"
+                    type="number"
+                    domain={["dataMin", "dataMax"]}
+                    tickFormatter={(v: number) => fmtShort.format(new Date(v))}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#64748b", fontSize: 11 }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    width={48}
+                    tick={{ fill: "#64748b", fontSize: 11 }}
+                    tickFormatter={(v: number) => (metric === "energy" ? v.toFixed(2) : v.toFixed(0))}
+                    label={{ value: yLabel, angle: -90, position: "insideLeft", fill: "#94a3b8", fontSize: 11 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "12px",
+                      padding: "10px 12px",
+                      fontSize: "13px",
+                    }}
+                    labelFormatter={(v: unknown) => {
+                      if (typeof v === "number") return fmtLong.format(new Date(v));
+                      return "";
+                    }}
+                    formatter={(v: unknown) => {
+                      if (typeof v === "number") {
+                        const n = metric === "energy" ? v.toFixed(3) : v.toFixed(1);
+                        return [`${n} ${yLabel}`, lineName];
+                      }
+                      return [String(v), lineName];
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey={lineKey}
+                    stroke="none"
+                    fill={`url(#monitoring-${metric}Fill)`}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey={lineKey}
+                    stroke={metricColors[metric]}
+                    strokeWidth={2.25}
+                    dot={false}
+                    activeDot={{
+                      r: 5,
+                      stroke: metricColors[metric],
+                      strokeWidth: 2,
+                      fill: "#ffffff",
+                    }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-center px-6">
+                {loading ? (
+                  <>
+                    <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+                    <p className="mt-3 text-sm text-slate-500">Loading chart…</p>
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="h-8 w-8 text-slate-300" />
+                    <p className="mt-3 text-sm font-medium text-slate-700">No readings in this range</p>
+                    <p className="mt-1 text-xs text-slate-500 max-w-sm">
+                      Try a longer time window or check that your meter is sending data.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Raw readings — collapsed by default for a cleaner page */}
+        <section className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80 overflow-hidden">
           <button
             type="button"
-            onClick={() => {
-              const rows = items.map((r) => ({
-                id: r.id,
-                created_at: r.created_at,
-                voltage: r.voltage,
-                current: r.current,
-                power: r.power,
-                energy_kwh: r.energy_kwh,
-              }));
-              const name = selectedDevice?.name?.replace(/\s+/g, "_") || "device";
-              downloadCsv(`telemetry_${name}.csv`, rows);
-            }}
-            className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-500 inline-flex items-center gap-2 disabled:opacity-60"
-            disabled={!items.length}
+            onClick={() => setTableOpen((o) => !o)}
+            className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50/80 transition-colors"
           >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </button>
-        </div>
-      </div>
-
-      {/* Time Range & Metric Selector */}
-      <div className="mt-5 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <PresetBtn active={preset === "1h"} onClick={() => setPreset("1h")}>1h</PresetBtn>
-            <PresetBtn active={preset === "24h"} onClick={() => setPreset("24h")}>24h</PresetBtn>
-            <PresetBtn active={preset === "7d"} onClick={() => setPreset("7d")}>7d</PresetBtn>
-            <PresetBtn active={preset === "30d"} onClick={() => setPreset("30d")}>30d</PresetBtn>
-            <PresetBtn active={preset === "custom"} onClick={() => setPreset("custom")}>Custom</PresetBtn>
-          </div>
-          
-          <div className="flex flex-wrap gap-2">
-            <Tab active={metric === "power"} onClick={() => setMetric("power")}>Power</Tab>
-            <Tab active={metric === "voltage"} onClick={() => setMetric("voltage")}>Voltage</Tab>
-            <Tab active={metric === "current"} onClick={() => setMetric("current")}>Current</Tab>
-            <Tab active={metric === "energy"} onClick={() => setMetric("energy")}>Energy</Tab>
-          </div>
-        </div>
-
-        {preset === "custom" && (
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <div className="text-sm text-slate-600">From</div>
-              <input
-                type="datetime-local"
-                className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-                value={fromLocal}
-                onChange={(e) => setFromLocal(e.target.value)}
-              />
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                <Zap className="h-4 w-4" />
+              </span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Raw readings</h2>
+                <p className="text-xs text-slate-500">
+                  {items.length ? `${Math.min(100, items.length)} of ${items.length} rows` : "No data"}
+                </p>
+              </div>
             </div>
-            <div>
-              <div className="text-sm text-slate-600">To</div>
-              <input
-                type="datetime-local"
-                className="mt-1 w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
-                value={toLocal}
-                onChange={(e) => setToLocal(e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 flex items-center gap-2">
-            <button
-            type="button"
-            onClick={() => fetchData().catch(() => void 0)}
-            className="rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-semibold hover:bg-indigo-500 inline-flex items-center gap-2 disabled:opacity-60"
-            disabled={loading || deviceId === null}
-          >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <History className="h-4 w-4" />}
-            Refresh
+            <span className="text-xs font-medium text-indigo-600">{tableOpen ? "Hide" : "Show"}</span>
           </button>
-          {msg && (
-            <div className="text-sm text-red-600">{msg}</div>
-          )}
-        </div>
-      </div>
 
-      {/* Summary Cards */}
-      <div className="mt-5 grid gap-4 md:grid-cols-4">
-        <StatCard
-          title="Avg Power"
-          value={summary ? `${summary.avgW.toFixed(1)} W` : "--"}
-          subValue="Average"
-          icon={<Zap className="h-5 w-5" />}
-          color="green"
-        />
-        <StatCard
-          title="Range"
-          value={summary ? `${summary.minW.toFixed(1)} - ${summary.maxW.toFixed(1)} W` : "--"}
-          subValue="Min - Max"
-          icon={<Zap className="h-5 w-5" />}
-          color="blue"
-        />
-        <StatCard
-          title="Usage"
-          value={summary ? `${summary.usedKwh.toFixed(3)} kWh` : "--"}
-          subValue="Total in range"
-          icon={<Zap className="h-5 w-5" />}
-          color="orange"
-        />
-        <StatCard
-          title="Readings"
-          value={items.length ? String(items.length) : "--"}
-          subValue="Data points"
-          icon={<Zap className="h-5 w-5" />}
-          color="purple"
-        />
-      </div>
-
-      {/* Chart */}
-      <div className="mt-5 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
-        <div className="font-semibold mb-1">{lineName}</div>
-        <div className="text-sm text-slate-600 mb-4">
-          {selectedDevice ? selectedDevice.name : "—"} • {preset === "custom" ? "Custom" : preset.toUpperCase()}
-        </div>
-
-        <div className="h-96">
-          {chartData.length ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 10, right: 15, left: 10, bottom: 60 }}>
-                <defs>
-                  <linearGradient id={`${metric}Fill`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={metricColors[metric]} stopOpacity={0.4} />
-                    <stop offset="70%" stopColor={metricColors[metric]} stopOpacity={0.12} />
-                    <stop offset="100%" stopColor={metricColors[metric]} stopOpacity={0.02} />
-                  </linearGradient>
-                  <filter id={`${metric}Glow`}>
-                    <feGaussianBlur stdDeviation="3" result="coloredBlur" />
-                    <feMerge>
-                      <feMergeNode in="coloredBlur" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-                </defs>
-
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="t"
-                  type="number"
-                  domain={["dataMin", "dataMax"]}
-                  tickFormatter={(v: number) => fmtShort.format(new Date(v))}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: "#64748b", fontSize: 12 }}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: "#64748b", fontSize: 12 }}
-                  tickFormatter={(v: number) => (metric === "energy" ? v.toFixed(3) : v.toFixed(1))}
-                  label={{ value: yLabel, angle: -90, position: "insideLeft", fill: "#64748b" }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "white",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "12px",
-                    padding: "12px",
-                  }}
-                  labelFormatter={(v: unknown) => {
-                    if (typeof v === "number") return fmtLong.format(new Date(v));
-                    return "";
-                  }}
-                  formatter={(v: unknown) => {
-                    if (typeof v === "number") {
-                      const n = metric === "energy" ? v.toFixed(4) : v.toFixed(2);
-                      return [n, yLabel];
-                    }
-                    return [String(v), yLabel];
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey={lineKey}
-                  stroke="none"
-                  fill={`url(#${metric}Fill)`}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey={lineKey}
-                  stroke={metricColors[metric]}
-                  strokeWidth={2.5}
-                  filter={`url(#${metric}Glow)`}
-                  dot={false}
-                  activeDot={{
-                    r: 4,
-                    stroke: metricColors[metric],
-                    strokeWidth: 1,
-                    fill: "#ffffff",
-                  }}
-                  isAnimationActive={false}
-                />
-                <Brush
-                  dataKey="t"
-                  height={28}
-                  travellerWidth={10}
-                  tickFormatter={(v: number) => fmtShort.format(new Date(v))}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full grid place-items-center text-slate-500">
-              {loading ? "Loading chart..." : "No data for this range. Try a larger window or send telemetry."}
+          {tableOpen && items.length > 0 && (
+            <div className="border-t border-slate-100 px-5 pb-5">
+              <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Time</th>
+                      <th className="px-4 py-3">Voltage</th>
+                      <th className="px-4 py-3">Current</th>
+                      <th className="px-4 py-3">Power</th>
+                      <th className="px-4 py-3">Energy</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {latestFirst.slice(0, 100).map((r) => (
+                      <tr key={r.id} className="hover:bg-indigo-50/30 transition-colors">
+                        <td className="px-4 py-2.5 tabular-nums text-xs text-slate-600">
+                          {fmtLong.format(new Date(r.created_at))}
+                        </td>
+                        <td className="px-4 py-2.5 tabular-nums">{r.voltage.toFixed(1)} V</td>
+                        <td className="px-4 py-2.5 tabular-nums">{r.current.toFixed(2)} A</td>
+                        <td className="px-4 py-2.5 tabular-nums font-medium text-slate-900">{r.power.toFixed(1)} W</td>
+                        <td className="px-4 py-2.5 tabular-nums">{r.energy_kwh.toFixed(4)} kWh</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {items.length > 100 && (
+                <p className="mt-3 text-xs text-slate-500">
+                  Export CSV for the full dataset ({items.length} rows).
+                </p>
+              )}
             </div>
           )}
-        </div>
-      </div>
+        </section>
 
-      {/* Table */}
-      <div className="mt-5 rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
-        <div className="font-semibold mb-1">Recent Readings</div>
-        <div className="text-sm text-slate-600 mb-4">
-          Latest first (showing up to 100 rows)
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-600 border-b border-slate-200">
-                <th className="py-2 pr-4">Time</th>
-                <th className="py-2 pr-4">Voltage (V)</th>
-                <th className="py-2 pr-4">Current (A)</th>
-                <th className="py-2 pr-4">Power (W)</th>
-                <th className="py-2 pr-4">Energy (kWh)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {latestFirst.slice(0, 100).map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="py-2 pr-4 tabular-nums text-xs">{fmtShort.format(new Date(r.created_at))}</td>
-                  <td className="py-2 pr-4 tabular-nums">{r.voltage.toFixed(1)}</td>
-                  <td className="py-2 pr-4 tabular-nums">{r.current.toFixed(2)}</td>
-                  <td className="py-2 pr-4 tabular-nums">{r.power.toFixed(1)}</td>
-                  <td className="py-2 pr-4 tabular-nums">{r.energy_kwh.toFixed(4)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {items.length > 100 && (
-          <div className="mt-3 text-xs text-slate-500">
-            Showing 100 of {items.length} readings. Export CSV for complete data.
-          </div>
-        )}
+        <p className="flex items-center justify-center gap-1.5 pb-2 text-center text-xs text-slate-400">
+          <Activity className="h-3.5 w-3.5" />
+          Live power updates every few seconds · chart reloads when filters change
+        </p>
       </div>
     </AppShell>
   );
 }
 
-function PresetBtn({
+function FilterPill({
   active,
   onClick,
   children,
@@ -616,34 +852,10 @@ function PresetBtn({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+      className={`rounded-xl px-3.5 py-2 text-sm font-medium ring-1 transition ${
         active
-          ? "bg-indigo-600 text-white"
-          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Tab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-        active
-          ? "bg-indigo-600 text-white"
-          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+          ? "bg-indigo-600 text-white ring-indigo-600 shadow-sm shadow-indigo-500/20"
+          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
       }`}
     >
       {children}

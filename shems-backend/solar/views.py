@@ -1,15 +1,43 @@
 from datetime import timedelta
+
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from devices.models import Device
+from predictions.services import calc_kwh_in_range
 from telemetry.models import TelemetryReading
 from user_settings.models import UserSettings
-from .models import SolarConfig, WeatherCache, SolarGeneration
+from .models import SolarConfig, SolarGeneration
 from .weather_service import get_weather
 from .solar_service import estimate_solar_kw
+
+
+def _today_home_kwh(user) -> float:
+    """Sum positive energy deltas for all user devices since local midnight."""
+    now = timezone.localtime(timezone.now())
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    total = 0.0
+    for device in Device.objects.filter(user=user):
+        total += calc_kwh_in_range(device, today_start, today_end)
+    return round(total, 4)
+
+
+def _estimate_solar_kwh_today(solar_kw: float, weather, now) -> float:
+    """Rough daily solar energy from current estimate and elapsed daylight."""
+    local = timezone.localtime(now)
+    sunrise = timezone.localtime(weather.sunrise, timezone.get_current_timezone())
+    sunset = timezone.localtime(weather.sunset, timezone.get_current_timezone())
+    if local < sunrise:
+        return 0.0
+    if local >= sunset:
+        daylight_hours = max((sunset - sunrise).total_seconds() / 3600.0, 0.1)
+        return round(solar_kw * daylight_hours * 0.55, 4)
+    elapsed_h = (local - sunrise).total_seconds() / 3600.0
+    return round(solar_kw * elapsed_h * 0.7, 4)
 
 class SolarConfigAPI(APIView):
     permission_classes = [IsAuthenticated]
@@ -69,7 +97,9 @@ class SolarStatusAPI(APIView):
         settings_obj, _ = UserSettings.objects.get_or_create(user=request.user)
         tariff = float(settings_obj.tariff_pkr_per_kwh)
 
-        savings_today = round(min(home_kw, solar_kw) * tariff, 2)
+        today_home_kwh = _today_home_kwh(request.user)
+        est_solar_kwh_today = _estimate_solar_kwh_today(solar_kw, weather, now)
+        savings_today = round(min(today_home_kwh, est_solar_kwh_today) * tariff, 2)
 
         # Store historical data - store every time to ensure we have accurate history
         # Check if we already stored data in the last 5 minutes to avoid duplicates
@@ -99,8 +129,11 @@ class SolarStatusAPI(APIView):
             "home_kw": home_kw,
             "grid_import_kw": grid_import_kw,
             "savings_today_pkr": savings_today,
+            "today_home_kwh": today_home_kwh,
+            "estimated_solar_kwh_today": est_solar_kwh_today,
             "cloud_cover": weather.cloud_cover,
-            "source": "estimated"
+            "source": "estimated",
+            "weather_source": weather.source,
         })
 
 

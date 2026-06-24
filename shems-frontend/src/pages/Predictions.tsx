@@ -1,6 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
 import AppShell from "../components/AppShell";
-import StatCard from "../components/StatCard";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -16,11 +15,13 @@ import {
   TrendingUp,
   TrendingDown,
   Zap,
-  Wallet,
   Lightbulb,
   CheckCircle,
   Sparkles,
   ChevronDown,
+  Activity,
+  BarChart3,
+  RefreshCw,
 } from "lucide-react";
 import {
   getUsagePrediction,
@@ -103,17 +104,14 @@ function formatTrainedAt(iso?: string): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
+    return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
   } catch {
     return iso;
   }
 }
 
 export default function Predictions() {
-  const [predictionPeriod, setPredictionPeriod] = useState<"week" | "month">("month");
+  const [predictionPeriod, setPredictionPeriod] = useState<"week" | "month">("week");
   const [predictions, setPredictions] = useState<PredictionDay[]>([]);
   const [actuals, setActuals] = useState<UsagePredictionResult["actuals"]>([]);
   const [predictionsMessage, setPredictionsMessage] = useState<string | null>(null);
@@ -123,15 +121,30 @@ export default function Predictions() {
   const [error, setError] = useState<string | null>(null);
 
   const periodDays = predictionPeriod === "week" ? 7 : 30;
+  const periodLabel = predictionPeriod === "week" ? "Next 7 days" : "Next 30 days";
+
+  function loadData() {
+    setLoading(true);
+    setError(null);
+    return Promise.all([getUsagePrediction(periodDays as 7 | 30), getRecommendations()])
+      .then(([predRes, recRes]) => {
+        setPredictionsMessage(predRes.message);
+        setPredictions(predRes.predictions);
+        setActuals(predRes.actuals);
+        setModelInfo(predRes.model_info ?? null);
+        setRecommendations(recRes.recommendations);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to load forecast");
+      })
+      .finally(() => setLoading(false));
+  }
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([
-      getUsagePrediction(periodDays as 7 | 30),
-      getRecommendations(),
-    ])
+    Promise.all([getUsagePrediction(periodDays as 7 | 30), getRecommendations()])
       .then(([predRes, recRes]) => {
         if (cancelled) return;
         setPredictionsMessage(predRes.message);
@@ -141,7 +154,7 @@ export default function Predictions() {
         setRecommendations(recRes.recommendations);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load forecast");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -171,14 +184,8 @@ export default function Predictions() {
 
   const summary = useMemo(() => {
     const periodData = predictions;
-    const totalPredictedUsage = periodData.reduce(
-      (sum, p) => sum + (p.predicted_usage_kwh ?? 0),
-      0
-    );
-    const totalPredictedCost = periodData.reduce(
-      (sum, p) => sum + (p.predicted_cost_pkr ?? 0),
-      0
-    );
+    const totalPredictedUsage = periodData.reduce((sum, p) => sum + (p.predicted_usage_kwh ?? 0), 0);
+    const totalPredictedCost = periodData.reduce((sum, p) => sum + (p.predicted_cost_pkr ?? 0), 0);
     const avgDailyUsage = periodData.length ? totalPredictedUsage / periodData.length : 0;
     const avgDailyCost = periodData.length ? totalPredictedCost / periodData.length : 0;
     const mid = Math.floor(periodData.length / 2);
@@ -220,159 +227,87 @@ export default function Predictions() {
   if (error) {
     return (
       <AppShell>
-        <div className="rounded-xl bg-red-50 ring-1 ring-red-200 p-4 text-red-700">{error}</div>
+        <div className="mx-auto max-w-6xl">
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+            <button
+              type="button"
+              className="ml-3 font-medium text-red-700 underline hover:no-underline"
+              onClick={() => void loadData()}
+            >
+              Retry
+            </button>
+          </div>
+        </div>
       </AppShell>
     );
   }
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Usage forecast</h1>
-          <p className="mt-1 text-sm text-slate-500 max-w-2xl">
-            Next days&apos; kWh and cost from a <span className="text-slate-700">Random Forest</span>{" "}
-            model trained on your home&apos;s daily history.
-          </p>
-        </div>
-
-        {/* Full metrics live here so the main page stays clean; open for FYP / viva screenshots */}
-        {modelInfo && (
-          <details className="group rounded-xl bg-white ring-1 ring-slate-200 shadow-sm overflow-hidden">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
-              <span>Model details (R², MAE, features, last trained)</span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
-            </summary>
-            <div className="border-t border-slate-100 px-4 py-4 space-y-4 bg-slate-50/80">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs text-slate-500">Holdout R²</div>
-                  <div className="text-xl font-semibold tabular-nums text-slate-900">
-                    {modelInfo.r2_test != null ? modelInfo.r2_test.toFixed(3) : "—"}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">Time-ordered test split</div>
-                </div>
-                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs text-slate-500">Holdout MAE</div>
-                  <div className="text-xl font-semibold tabular-nums text-slate-900">
-                    {modelInfo.mae_test_kwh != null
-                      ? `${modelInfo.mae_test_kwh.toFixed(2)} kWh/d`
-                      : "—"}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">Per day on holdout</div>
-                </div>
-                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs text-slate-500">Samples</div>
-                  <div className="text-xl font-semibold tabular-nums text-slate-900">
-                    {modelInfo.n_samples ?? "—"}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {modelInfo.n_train != null && modelInfo.n_test != null
-                      ? `${modelInfo.n_train} train / ${modelInfo.n_test} test`
-                      : "Pooled daily rows"}
-                  </div>
-                </div>
-                <div className="rounded-lg bg-white p-3 ring-1 ring-slate-100">
-                  <div className="text-xs text-slate-500">Last trained</div>
-                  <div className="text-sm font-semibold text-slate-900 leading-snug">
-                    {formatTrainedAt(modelInfo.trained_at)}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {modelInfo.algorithm ?? "RandomForestRegressor"}
-                  </div>
-                </div>
-              </div>
-              {modelInfo.note && (
-                <p className="text-sm text-amber-900 bg-amber-50 ring-1 ring-amber-200/80 rounded-lg px-3 py-2">
-                  {modelInfo.note}
+      <div className="mx-auto max-w-6xl space-y-6">
+        {/* Hero */}
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-violet-950 to-indigo-900 text-white shadow-xl shadow-violet-900/20">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-violet-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 left-1/4 h-48 w-48 rounded-full bg-indigo-500/15 blur-3xl" />
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-violet-200">Looking ahead</p>
+                <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Usage forecast</h1>
+                <p className="mt-2 max-w-lg text-sm text-violet-200/90 leading-relaxed">
+                  Estimated usage and cost based on your past consumption patterns.
                 </p>
-              )}
-              {modelInfo.feature_description && (
-                <p className="text-sm text-slate-600 leading-relaxed">{modelInfo.feature_description}</p>
-              )}
-              <p className="text-xs text-slate-500">
-                Update the model after more data:{" "}
-                <code className="rounded bg-slate-200/80 px-1.5 py-0.5 text-slate-800">
-                  python manage.py train_predictor
-                </code>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {featureChips.map((f) => (
-                  <span
-                    key={f}
-                    className="rounded-full bg-indigo-50 text-indigo-800 px-2.5 py-0.5 text-xs font-medium ring-1 ring-indigo-100"
-                  >
-                    {f}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-violet-100 ring-1 ring-white/10">
+                    {periodLabel}
                   </span>
-                ))}
+                  {modelInfo?.trained_at && (
+                    <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-medium text-emerald-100 ring-1 ring-emerald-400/30">
+                      Model ready
+                    </span>
+                  )}
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                      summary.trend === "increasing"
+                        ? "bg-amber-500/20 text-amber-100 ring-amber-400/30"
+                        : "bg-emerald-500/20 text-emerald-100 ring-emerald-400/30"
+                    }`}
+                  >
+                    {summary.trend === "increasing" ? (
+                      <TrendingUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <TrendingDown className="h-3.5 w-3.5" />
+                    )}
+                    {loading ? "…" : `${summary.trend === "increasing" ? "Rising" : "Falling"} trend`}
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadData()}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Refresh
+                </button>
               </div>
             </div>
-          </details>
-        )}
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="Predicted usage"
-            value={loading ? "…" : `${summary.totalPredictedUsage.toFixed(2)} kWh`}
-            subValue={predictionPeriod === "week" ? "Next 7 days" : "Next 30 days"}
-            icon={<Zap className="h-5 w-5" />}
-            color="indigo"
-          />
-          <StatCard
-            title="Predicted cost"
-            value={loading ? "…" : `PKR ${summary.totalPredictedCost.toFixed(2)}`}
-            subValue={predictionPeriod === "week" ? "Next 7 days" : "Next 30 days"}
-            icon={<Wallet className="h-5 w-5" />}
-            color="purple"
-          />
-          <StatCard
-            title="Avg daily usage"
-            value={loading ? "…" : `${summary.avgDailyUsage.toFixed(2)} kWh`}
-            subValue="Forecast window average"
-            icon={<TrendingUp className="h-5 w-5" />}
-            color="blue"
-          />
-          <StatCard
-            title="Forecast shape"
-            value={
-              loading
-                ? "…"
-                : summary.trend === "increasing"
-                  ? "↑ Rising"
-                  : "↓ Falling"
-            }
-            subValue={
-              loading
-                ? ""
-                : `${summary.trendPercent}% ${summary.trend === "increasing" ? "up" : "down"} first vs second half`
-            }
-            icon={
-              summary.trend === "increasing" ? (
-                <TrendingUp className="h-5 w-5" />
-              ) : (
-                <TrendingDown className="h-5 w-5" />
-              )
-            }
-            color="orange"
-          />
-        </div>
-
-        <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 md:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-2">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">Forecast vs recent actuals</h2>
-              <p className="text-sm text-slate-500 mt-0.5">
-                Solid fill shows predicted daily kWh; dashed lines are measured history.
-              </p>
-            </div>
-            <div className="flex rounded-xl bg-slate-100 p-1">
+            <div className="mt-6 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setPredictionPeriod("week")}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                className={`rounded-xl px-3.5 py-2 text-sm font-semibold ring-1 transition ${
                   predictionPeriod === "week"
-                    ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-indigo-950 ring-white shadow-sm"
+                    : "bg-white/10 text-white ring-white/15 hover:bg-white/15"
                 }`}
               >
                 7 days
@@ -380,31 +315,81 @@ export default function Predictions() {
               <button
                 type="button"
                 onClick={() => setPredictionPeriod("month")}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                className={`rounded-xl px-3.5 py-2 text-sm font-semibold ring-1 transition ${
                   predictionPeriod === "month"
-                    ? "bg-white text-indigo-700 shadow-sm ring-1 ring-slate-200/80"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-indigo-950 ring-white shadow-sm"
+                    : "bg-white/10 text-white ring-white/15 hover:bg-white/15"
                 }`}
               >
                 30 days
               </button>
             </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-violet-200">Predicted usage</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {loading ? "—" : summary.totalPredictedUsage.toFixed(1)}
+                  <span className="ml-1 text-lg font-semibold text-violet-200">kWh</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-violet-200">Predicted cost</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {loading ? "—" : summary.totalPredictedCost.toFixed(0)}
+                  <span className="ml-1 text-lg font-semibold text-violet-200">PKR</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-violet-200">Daily average</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {loading ? "—" : summary.avgDailyUsage.toFixed(2)}
+                  <span className="ml-1 text-lg font-semibold text-violet-200">kWh</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-violet-200">Daily cost avg</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {loading ? "—" : summary.avgDailyCost.toFixed(0)}
+                  <span className="ml-1 text-lg font-semibold text-violet-200">PKR</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Chart */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+              <BarChart3 className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-semibold text-slate-900">Forecast vs recent usage</h2>
+              <p className="text-xs text-slate-500">
+                Solid lines are predicted; dashed lines show measured history
+              </p>
+            </div>
           </div>
 
           {loading ? (
-            <div className="h-80 flex items-center justify-center text-slate-500">Loading…</div>
+            <div className="flex h-80 flex-col items-center justify-center text-slate-500">
+              <RefreshCw className="h-8 w-8 animate-spin text-indigo-500" />
+              <p className="mt-3 text-sm">Loading forecast…</p>
+            </div>
           ) : chartData.length === 0 ? (
-            <div className="h-80 flex items-center justify-center text-slate-500 text-center px-4 text-sm">
-              {predictionsMessage ??
-                "No prediction data. Add devices and collect a few days of usage, then run train_predictor."}
+            <div className="flex h-80 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-6 text-center">
+              <Sparkles className="h-8 w-8 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-700">Not enough history yet</p>
+              <p className="mt-1 max-w-sm text-xs text-slate-500 leading-relaxed">
+                {predictionsMessage ??
+                  "Keep your meters running for a few days. Forecasts appear once WattGuard has enough usage data."}
+              </p>
             </div>
           ) : (
             <div className="h-[22rem] w-full min-h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={chartData}
-                  margin={{ top: 12, right: 12, left: 4, bottom: 8 }}
-                >
+                <ComposedChart data={chartData} margin={{ top: 12, right: 12, left: 4, bottom: 8 }}>
                   <defs>
                     <linearGradient id="predUsageFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
@@ -427,12 +412,7 @@ export default function Predictions() {
                     axisLine={false}
                     tick={{ fill: "#64748b", fontSize: 12 }}
                     tickFormatter={(v: number) => v.toFixed(1)}
-                    label={{
-                      value: "kWh",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: "#64748b",
-                    }}
+                    label={{ value: "kWh", angle: -90, position: "insideLeft", fill: "#64748b" }}
                   />
                   <YAxis
                     yAxisId="right"
@@ -441,12 +421,7 @@ export default function Predictions() {
                     axisLine={false}
                     tick={{ fill: "#64748b", fontSize: 12 }}
                     tickFormatter={(v: number) => `₨${v.toFixed(0)}`}
-                    label={{
-                      value: "PKR",
-                      angle: 90,
-                      position: "insideRight",
-                      fill: "#64748b",
-                    }}
+                    label={{ value: "PKR", angle: 90, position: "insideRight", fill: "#64748b" }}
                   />
                   <Tooltip content={<PredictionTooltip />} />
                   <Legend wrapperStyle={{ paddingTop: 16 }} />
@@ -509,83 +484,150 @@ export default function Predictions() {
               </ResponsiveContainer>
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5 md:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-6">
-            <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-amber-500" />
-              Data-driven recommendations
-            </h2>
-            {totalSavings > 0 && (
-              <div className="text-sm text-slate-600">
-                Parsed savings hints:{" "}
-                <span className="font-semibold text-emerald-600">
-                  PKR {totalSavings.toLocaleString()}/mo
-                </span>
+        {/* Recommendations */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-md shadow-amber-500/25">
+                <Sparkles className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Energy tips</h2>
+                <p className="text-xs text-slate-500">Personalised suggestions from your usage</p>
               </div>
+            </div>
+            {totalSavings > 0 && (
+              <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full ring-1 ring-emerald-100">
+                Up to PKR {totalSavings.toLocaleString()}/mo potential savings
+              </span>
             )}
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-slate-500">Loading…</div>
+            <div className="py-12 text-center text-slate-500 text-sm">Loading tips…</div>
           ) : recommendations.length === 0 ? (
-            <div className="py-12 text-center text-slate-500 text-sm max-w-md mx-auto">
-              No recommendations yet. As usage grows, we surface trends, heavy devices, and peak
-              hours automatically.
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-12 text-center text-sm text-slate-500 max-w-md mx-auto">
+              Tips will appear as more usage data comes in — heavy devices, peak hours, and trends.
             </div>
           ) : (
-            <ul className="space-y-3 list-none p-0 m-0">
+            <ul className="grid gap-3 sm:grid-cols-2">
               {recommendations.map((rec, idx) => (
                 <li
                   key={`${rec.title}-${idx}`}
-                  className={`rounded-2xl p-5 ring-1 transition hover:shadow-md ${
+                  className={`rounded-xl border p-4 ${
                     rec.priority === "high"
-                      ? "bg-gradient-to-br from-red-50 to-orange-50/50 ring-red-200/80"
+                      ? "border-red-100 bg-gradient-to-br from-red-50/80 to-orange-50/40"
                       : rec.priority === "medium"
-                        ? "bg-gradient-to-br from-amber-50 to-yellow-50/30 ring-amber-200/70"
-                        : "bg-gradient-to-br from-slate-50 to-blue-50/40 ring-slate-200/80"
+                        ? "border-amber-100 bg-gradient-to-br from-amber-50/80 to-yellow-50/30"
+                        : "border-slate-100 bg-gradient-to-br from-slate-50 to-indigo-50/30"
                   }`}
                 >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={`p-3 rounded-xl shrink-0 ${
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                         rec.priority === "high"
                           ? "bg-red-100 text-red-700"
                           : rec.priority === "medium"
                             ? "bg-amber-100 text-amber-800"
-                            : "bg-blue-100 text-blue-700"
+                            : "bg-indigo-100 text-indigo-700"
                       }`}
                     >
-                      {priorityIcons[rec.type] ?? <Lightbulb className="h-5 w-5" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-slate-900">{rec.title}</h3>
+                      {priorityIcons[rec.type] ?? <Lightbulb className="h-4 w-4" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-slate-900">{rec.title}</h3>
                         <span
-                          className={`text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase tracking-wide ${
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase ${
                             rec.priority === "high"
                               ? "bg-red-200/90 text-red-900"
                               : rec.priority === "medium"
                                 ? "bg-amber-200/90 text-amber-900"
-                                : "bg-blue-200/80 text-blue-900"
+                                : "bg-indigo-200/80 text-indigo-900"
                           }`}
                         >
                           {rec.priority}
                         </span>
                       </div>
-                      <p className="text-sm text-slate-600 leading-relaxed">{rec.description}</p>
-                      <div className="mt-3 flex items-start gap-2 text-sm">
-                        <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                        <span className="font-medium text-emerald-800">{rec.impact}</span>
-                      </div>
+                      <p className="mt-1 text-xs text-slate-600 leading-relaxed line-clamp-4">{rec.description}</p>
+                      <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-emerald-800">
+                        <CheckCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        {rec.impact}
+                      </p>
                     </div>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </section>
+
+        {/* Model details — collapsible for demos / viva */}
+        {modelInfo && (
+          <details className="group rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80 overflow-hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-slate-700 hover:bg-slate-50/80 [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-indigo-600" />
+                How the forecast is built (accuracy & model info)
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-slate-100 px-5 py-5 space-y-4 bg-slate-50/50">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Holdout R²</p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {modelInfo.r2_test != null ? modelInfo.r2_test.toFixed(3) : "—"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Holdout MAE</p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {modelInfo.mae_test_kwh != null ? `${modelInfo.mae_test_kwh.toFixed(2)} kWh/d` : "—"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Training samples</p>
+                  <p className="text-xl font-semibold tabular-nums text-slate-900">
+                    {modelInfo.n_samples ?? "—"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-white p-3 ring-1 ring-slate-100">
+                  <p className="text-xs text-slate-500">Last updated</p>
+                  <p className="text-sm font-semibold text-slate-900 leading-snug">
+                    {formatTrainedAt(modelInfo.trained_at)}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">{modelInfo.algorithm ?? "Random forest"}</p>
+                </div>
+              </div>
+              {modelInfo.note && (
+                <p className="text-sm text-amber-900 bg-amber-50 ring-1 ring-amber-200/80 rounded-xl px-4 py-3">
+                  {modelInfo.note}
+                </p>
+              )}
+              {modelInfo.feature_description && (
+                <p className="text-sm text-slate-600 leading-relaxed">{modelInfo.feature_description}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {featureChips.map((f) => (
+                  <span
+                    key={f}
+                    className="rounded-full bg-indigo-50 text-indigo-800 px-2.5 py-0.5 text-xs font-medium ring-1 ring-indigo-100"
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </details>
+        )}
+
+        <p className="flex items-center justify-center gap-1.5 pb-2 text-center text-xs text-slate-400">
+          <Activity className="h-3.5 w-3.5" />
+          Forecasts improve as you collect more daily usage
+        </p>
       </div>
     </AppShell>
   );

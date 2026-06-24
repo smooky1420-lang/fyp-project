@@ -1,12 +1,16 @@
-# SHEMS — Quick Project Summary (for group & report writing)
+# SHEMS / WattGuard — Quick Project Summary (for group & report writing)
 
 Use this file as a **short reference** when writing the FYP report. For deep technical detail, see **`ARCHITECTURE_SUMMARY.md`** (and `DATABASE_SCHEMA_SUMMARY.md` for tables).
 
+> **Recent work:** see **`LAST_UPDATE.md`** (dated log of what the team changed — start with **2026-06-24**).
+
 ---
 
-## What is SHEMS?
+## What is this project?
 
-**SHEMS (Smart Home Energy Management System)** is a web app that helps households **monitor electricity use**, **estimate costs** (Pakistan tariff logic), **optional solar** estimates, and **predict future usage** with a machine-learning model. Users register, add **devices** (with per-device tokens for hardware uploads), and view dashboards, charts, and reports.
+**SHEMS (Smart Home Energy Management System)** is the FYP project name. The **web UI product name is WattGuard** — same system.
+
+WattGuard helps households **monitor electricity use**, **estimate costs** (Pakistan tariff logic), **optional solar** estimates, **live alerts**, and **predict future usage** with a machine-learning model. Users register, add **devices** (with per-device tokens for hardware uploads), and view dashboards, charts, and reports.
 
 ---
 
@@ -14,41 +18,44 @@ Use this file as a **short reference** when writing the FYP report. For deep tec
 
 | Layer | Technology |
 |--------|------------|
-| Frontend | React, TypeScript, Vite |
+| Frontend | React, TypeScript, Vite — branded **WattGuard** |
 | Backend | Django, Django REST Framework |
 | Database | SQLite (dev; PostgreSQL is a natural upgrade) |
-| Auth | JWT for users; **device token** (`X-DEVICE-TOKEN`) for meter uploads |
-| ML | scikit-learn (Random Forest), pandas, joblib — model file: `shems-backend/models/predictor.joblib` |
+| Auth | JWT for users (+ refresh); **device token** (`X-DEVICE-TOKEN`) for meter uploads |
+| ML | scikit-learn (Random Forest), pandas, joblib — `shems-backend/models/predictor.joblib` |
+| Hardware | ESP32 firmware — telemetry upload + state poll for relay/limits; optional PZEM-004T |
 
 ---
 
 ## Main features (what to describe in the report)
 
-1. **Accounts & security** — Register, login, JWT; each user only sees **their** devices and data.
-2. **Devices** — Register devices (name, room, type); collapsible add form when you already have devices; optional **relay**, **power/daily limits**, **schedule**; ESP32 can **poll** `/api/devices/state-by-token/` with the device token.
-3. **Telemetry** — Upload readings (voltage, current, power, cumulative `energy_kwh`); **Monitoring** page shows time-range charts per device.
-4. **Tariff & money** — User sets PKR/kWh; system uses **Pakistan-style** tier ideas + **protection** logic in the tariff calculator; **today** and **monthly** cost views.
-5. **Reports** — Last 12 months usage/cost; month chips + dropdown; bar chart (kWh or cost, click bar to select month); selected-month spotlight vs previous month and vs average; sortable device table, share bars, cost donut; quick insights; CSV export (includes selected-month device rows when the API provides them).
-6. **Solar (optional)** — Config + weather-based **estimated** solar kW; grid import and savings hints.
-7. **Predictions** — Trained **Random Forest** predicts **next 7 or 30 days** daily kWh (and cost using tariff). Train with: `python manage.py train_predictor` (from `shems-backend`).
-8. **Recommendations** — **Data-based** tips only (e.g. month vs month change, biggest device, peak-hour usage, solar-related when relevant). No generic filler tips.
+1. **Accounts & security** — Register (auto-login), login, JWT with refresh; **protected routes**; each user only sees **their** data.
+2. **Devices** — CRUD; device token for ESP32; **relay**, **power/daily limits**, **schedule**; firmware polls `/api/devices/state-by-token/`.
+3. **Telemetry** — Upload readings (V, I, P, cumulative `energy_kwh`); **Monitoring** with per-device and **home total** charts (correct energy aggregation).
+4. **Tariff & money** — PKR/kWh; Pakistan-style calculator with **use & save**; today and monthly cost views.
+5. **Reports** — 12 months usage/cost; device breakdown; solar vs grid (history-based when solar data exists); CSV export.
+6. **Solar (optional)** — Config + weather-based estimates; graceful fallback without OpenWeather API key.
+7. **Predictions** — Random Forest, 7/30-day forecast; `train_predictor` command.
+8. **Recommendations** — Data-driven tips on Predictions page and top tips on Dashboard.
+9. **Alerts** — `GET /api/alerts/`: offline, high usage, limit breaches; Alerts page + bell badge.
+10. **Help** — In-app user guide at `/help` (FAQ, quick start, hardware, commands).
 
 ---
 
 ## How data flows (simple story)
 
 **Device / ESP32 → API → database → same user’s browser (JWT).**  
-Hardware sends data **without** the user password, using the **device token**. The app never mixes two users’ devices.
+Hardware uses the **device token**, not the user password. ESP32 also **polls** relay/limits from the server.
 
 ---
 
 ## ML & demo data (short)
 
-- **Training:** Command `train_predictor` reads historical **daily** usage from the DB and saves `predictor.joblib`.
-- **Inference:** The Predictions API loads that file and uses the **logged-in user’s** recent history as inputs where needed.
-- **Demo / testing:** `generate_synthetic_telemetry` and `seed_demo_devices` create realistic **hourly** data (e.g. AC / PC / fan-style profiles for a Pakistani household scenario). Run these from the `shems-backend` folder after `cd` there.
+- **Training:** `python manage.py train_predictor` → `predictor.joblib`
+- **Demo data:** `seed_demo_devices` or `generate_synthetic_telemetry`
+- **Tests:** `python manage.py test telemetry users user_settings predictions solar` (17 tests)
 
-**Exact commands** are in `QUICK_CHEAT_SHEET.md`.
+**Commands & env vars:** **`QUICK_CHEAT_SHEET.md`** · `.env.example` in backend and frontend folders.
 
 ---
 
@@ -57,31 +64,32 @@ Hardware sends data **without** the user password, using the **device token**. T
 | Area | Path |
 |------|------|
 | Backend entry | `shems-backend/manage.py`, `shems-backend/config/` |
-| API client (frontend) | `shems-frontend/src/lib/api.ts` |
-| Main UI pages | `shems-frontend/src/pages/` (Dashboard, Monitoring, Devices, Reports, Predictions, Settings, Solar, …) |
-| Predictions logic | `shems-backend/predictions/services.py` |
-| Telemetry | `shems-backend/telemetry/` |
+| API client | `shems-frontend/src/lib/api.ts` |
+| Main UI pages | `shems-frontend/src/pages/` |
+| Help / user guide | `shems-frontend/src/pages/Help.tsx` → `/help` |
+| Alerts logic | `shems-backend/telemetry/alerts_service.py` |
+| Predictions | `shems-backend/predictions/services.py` |
+| Firmware | `firmware/esp32_dummy_telemetry/` |
+| Change log | **`LAST_UPDATE.md`** |
 
 ---
 
 ## Suggested report sections (outline)
 
-You can map chapters like this:
-
-1. **Introduction** — Problem: visibility and cost of home electricity; goal of SHEMS.
+1. **Introduction** — Problem: visibility and cost of home electricity; goal of SHEMS/WattGuard.
 2. **Literature / related work** — Smart home energy, tariffs, ML forecasting (brief).
-3. **Requirements** — Functional (monitor, predict, report, optional solar) and non-functional (security, usability).
-4. **System design** — 3-tier diagram: React ↔ REST API ↔ DB; mention JWT + device token.
-5. **Implementation** — Modules: auth, devices, telemetry, settings/tariff, solar, predictions; mention Random Forest and `predictor.joblib`.
-6. **Testing / demo** — Screenshots of main pages; optional note on synthetic data and `train_predictor`.
-7. **Conclusion & future work** — e.g. PostgreSQL, more devices, model retraining schedule.
+3. **Requirements** — Functional + non-functional (security, usability, hardware).
+4. **System design** — 3-tier: React ↔ REST API ↔ DB; JWT + device token.
+5. **Implementation** — Modules listed in features above; Random Forest; ESP32 integration.
+6. **Testing / demo** — API tests; screenshots; Help page; live ESP32 optional.
+7. **Conclusion & future work** — PostgreSQL, per-user ML models, push notifications, etc.
 
 ---
 
 ## One-line pitch (abstract / intro)
 
-*“SHEMS is a secure web application that collects per-device electricity telemetry, applies Pakistan-oriented tariff and cost logic, optionally estimates solar contribution, and uses a trained machine learning model to forecast short-term usage to support better energy decisions.”*
+*“WattGuard (SHEMS) is a secure web application that collects per-device electricity telemetry, applies Pakistan-oriented tariff and cost logic, optionally estimates solar contribution, surfaces live alerts and data-driven recommendations, and uses a trained machine learning model to forecast short-term usage.”*
 
 ---
 
-*Last note: everyone should run the backend from `shems-backend` and set `VITE_API_BASE` if the API is not on the default URL — see `shems-frontend/README.md`.*
+*Run backend from `shems-backend`. Set `VITE_API_BASE` in `shems-frontend/.env` if the API is not on `http://127.0.0.1:8000`. For LAN hardware demo use `runserver 0.0.0.0:8000`.*

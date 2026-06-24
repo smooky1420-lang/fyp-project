@@ -18,6 +18,7 @@ type SolarChartProps = {
   onRangeChange: (r: ChartRange) => void;
   data: SolarHistoryPoint[];
   title?: string;
+  subtitle?: string;
 };
 
 const fmtTime = new Intl.DateTimeFormat("en-GB", {
@@ -251,6 +252,7 @@ export default function SolarChart({
   onRangeChange,
   data,
   title = "Solar Generation History",
+  subtitle,
 }: SolarChartProps) {
   const buckets = useMemo(() => buildBuckets(range), [range]);
 
@@ -267,13 +269,17 @@ export default function SolarChart({
   }, [points]);
 
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm p-5">
+    <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80 p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="font-semibold">{title}</div>
-          <div className="text-sm text-slate-600">
-            <span className="font-medium text-slate-700">Power (kW)</span>
-          </div>
+          <div className="font-semibold text-slate-900">{title}</div>
+          {subtitle ? (
+            <div className="text-sm text-slate-500">{subtitle}</div>
+          ) : (
+            <div className="text-sm text-slate-500">
+              <span className="font-medium text-slate-600">Power (kW)</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -398,9 +404,9 @@ function Toggle({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl px-3 py-2 text-sm ring-1 transition ${
+      className={`rounded-xl px-3 py-2 text-sm font-medium ring-1 transition ${
         active
-          ? "bg-slate-900 text-white ring-slate-900"
+          ? "bg-indigo-600 text-white ring-indigo-600 shadow-sm shadow-indigo-500/20"
           : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
       }`}
     >

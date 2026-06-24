@@ -1,6 +1,9 @@
-# SHEMS — Database summary (for FYP report)
+# SHEMS / WattGuard — Database summary (for FYP report)
 
 This document describes **what is stored in the database** and **how tables relate**. SHEMS uses **Django ORM**; the default development database is **SQLite** (`shems-backend/db.sqlite3`). PostgreSQL can be enabled in `config/settings.py` without changing the models.
+
+> **Not in DB:** ML model file `predictor.joblib`; **alerts** (computed live from telemetry — see `telemetry/alerts_service.py`).  
+> **Recent schema-related notes:** `LAST_UPDATE.md`
 
 ---
 

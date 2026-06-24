@@ -8,6 +8,7 @@ from devices.models import Device
 from .models import TelemetryReading
 from .serializers import TelemetryUploadSerializer, TelemetryReadingSerializer
 from user_settings.models import UserSettings
+from .alerts_service import get_user_alerts
 
 
 class TelemetryUploadAPI(APIView):
@@ -201,3 +202,11 @@ class TelemetryTodaySummaryAPI(APIView):
             "home_total_kwh": home_total_kwh,
             "home_total_cost_pkr": home_total_cost_pkr,
         })
+
+
+class AlertsAPI(APIView):
+    """Live alerts computed from telemetry and device limits (JWT)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(get_user_alerts(request.user))

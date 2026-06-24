@@ -110,20 +110,35 @@ class TariffCalculatorAPI(APIView):
         return monthly_usage
 
     def calculate_tariff(self, units, is_protected):
-        """Calculate tariff based on units and protection status."""
-        # Tariff rates (PKR per kWh)
+        """
+        Pakistan-style slab rates (PKR/kWh). Protected users get lifeline rates;
+        unprotected users use higher slabs. Above 200 units, protection is lost.
+        """
         if units <= 50:
-            # Lifeline (0-50 units)
-            return 3.95 if is_protected else None  # N/A for unprotected
-        elif units <= 100:
+            # Lifeline slab — protected only; unprotected pays first standard slab
+            return 3.95 if is_protected else 22.44
+        if units <= 100:
             return 7.74 if is_protected else 22.44
-        elif units <= 200:
+        if units <= 200:
             return 13.01 if is_protected else 28.91
-        elif units <= 300:
-            return None if is_protected else 33.10  # Protected becomes unprotected
-        else:
-            # Above 300 units - use highest rate
+        if units <= 300:
+            # Above 200 units protection no longer applies
             return 33.10
+        return 33.10
+
+    def tariff_message(self, units, is_protected, calculated_tariff):
+        if calculated_tariff is not None:
+            if units < 1:
+                return (
+                    "Early in the month — rate is estimated from your slab; "
+                    "it will refine as more usage is recorded."
+                )
+            if not is_protected and units <= 50:
+                return "Lifeline rates apply only to protected consumers; using standard slab rate."
+            if is_protected and units > 200:
+                return "Usage exceeded 200 units — protected lifeline rates no longer apply."
+            return None
+        return "Unable to calculate tariff for this usage level."
 
     def get(self, request):
         monthly_usage = self.get_monthly_usage(request.user, months=6)
@@ -145,13 +160,14 @@ class TariffCalculatorAPI(APIView):
         
         # Calculate tariff
         calculated_tariff = self.calculate_tariff(current_month_units, is_protected)
-        
+        hint = self.tariff_message(current_month_units, is_protected, calculated_tariff)
+
         return Response({
             "calculated_tariff": calculated_tariff,
             "is_protected": is_protected,
             "current_month_units": current_month_units,
             "monthly_usage": monthly_usage,
-            "message": None if calculated_tariff else "Unable to calculate tariff for this usage level."
+            "message": hint,
         })
 
 
@@ -343,6 +359,39 @@ class MonthlyReportsAPI(APIView):
 
         return out
 
+    def calc_solar_kwh_from_history(self, user, period_start, period_end):
+        """Integrate solar_kw samples from SolarGeneration over a period."""
+        from solar.models import SolarGeneration
+
+        gens = list(
+            SolarGeneration.objects.filter(
+                user=user,
+                created_at__gte=period_start,
+                created_at__lt=period_end,
+            ).order_by("created_at")
+        )
+        if len(gens) < 2:
+            return None
+
+        total = 0.0
+        for i in range(1, len(gens)):
+            prev = gens[i - 1]
+            cur = gens[i]
+            hours = (cur.created_at - prev.created_at).total_seconds() / 3600.0
+            if hours <= 0:
+                continue
+            avg_kw = (float(prev.solar_kw) + float(cur.solar_kw)) / 2.0
+            total += avg_kw * hours
+        return round(total, 2)
+
+    def estimate_solar_kwh(self, solar_config, total_kwh, months=12):
+        """Fallback when no SolarGeneration history exists."""
+        days_in_period = months * 30
+        estimated = (
+            float(solar_config.installed_capacity_kw) * 4 * days_in_period
+        ) * 0.7
+        return round(min(estimated, total_kwh * 0.5), 2)
+
     def get(self, request):
         reports = self.get_monthly_reports(request.user, months=12)
         device_breakdown = self.get_device_breakdown(request.user, months=12)
@@ -360,11 +409,29 @@ class MonthlyReportsAPI(APIView):
         grid_total_kwh = total_kwh
 
         if solar_config:
-            # Estimate solar generation for last 12 months (simplified)
-            # Rough estimate: average 4 hours of peak sun per day, 70% efficiency
-            days_in_period = 365  # 12 months
-            estimated_solar_kwh = (solar_config.installed_capacity_kw * 4 * days_in_period) * 0.7
-            solar_total_kwh = min(estimated_solar_kwh, total_kwh * 0.5)  # Cap at 50% of total
+            tz = timezone.get_current_timezone()
+            now = timezone.localtime(timezone.now(), tz)
+            period_start = now.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+            for _ in range(11):
+                if period_start.month == 1:
+                    period_start = period_start.replace(
+                        year=period_start.year - 1, month=12
+                    )
+                else:
+                    period_start = period_start.replace(month=period_start.month - 1)
+
+            period_end = now
+            from_history = self.calc_solar_kwh_from_history(
+                request.user, period_start, period_end
+            )
+            if from_history is not None and from_history > 0:
+                solar_total_kwh = min(from_history, total_kwh)
+            else:
+                solar_total_kwh = self.estimate_solar_kwh(
+                    solar_config, total_kwh, months=12
+                )
             grid_total_kwh = max(0, total_kwh - solar_total_kwh)
 
         return Response(

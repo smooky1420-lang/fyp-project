@@ -155,6 +155,6 @@ SIMPLE_JWT = {
 
     # optional but recommended
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
+    "BLACKLIST_AFTER_ROTATION": False,
 }
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")

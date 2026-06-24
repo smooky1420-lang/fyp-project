@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from django.utils import timezone
 from django.conf import settings
 
@@ -153,11 +154,29 @@ def _predict_with_model(user, period_days, history):
         if use_extended:
             mean_7 = sum(window) / 7.0
             month = dt.month
-            X = np.array(
-                [[day_of_week, is_weekend, day_index, prev_kwh, mean_7, month]]
-            )
+            row = {
+                "day_of_week": day_of_week,
+                "is_weekend": is_weekend,
+                "day_index": day_index,
+                "prev_kwh": prev_kwh,
+                "mean_7_kwh": mean_7,
+                "month": month,
+            }
+            X = pd.DataFrame([row], columns=feature_names)
         else:
-            X = np.array([[day_of_week, is_weekend, day_index, prev_kwh]])
+            cols = feature_names or [
+                "day_of_week",
+                "is_weekend",
+                "day_index",
+                "prev_kwh",
+            ]
+            row = {
+                "day_of_week": day_of_week,
+                "is_weekend": is_weekend,
+                "day_index": day_index,
+                "prev_kwh": prev_kwh,
+            }
+            X = pd.DataFrame([row], columns=cols)
         pred = float(model.predict(X)[0])
         pred = max(0.0, pred)
         prev_kwh = pred

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock, Mail } from "lucide-react";
-import { registerUser } from "../lib/api";
+import { registerUser, loginUser, setTokens } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 
 export default function Signup() {
@@ -30,7 +30,9 @@ export default function Signup() {
 
     try {
       await registerUser({ username, email, password });
-      nav("/login");
+      const tokens = await loginUser({ username, password });
+      setTokens(tokens);
+      nav("/dashboard");
     } catch (err: unknown) {
       setMsg(getErrorMessage(err));
     } finally {

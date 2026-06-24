@@ -21,8 +21,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/auth/", include("users.urls")),
     path("api/", include("devices.urls")),
-    path("api/", include("telemetry.urls")),  # <-- add this
-    path("api/telemetry/", include("telemetry.urls")),
+    path("api/", include("telemetry.urls")),
     path("api/settings/", include("user_settings.urls")),
     path("api/solar/", include("solar.urls")),
     path("api/predictions/", include("predictions.urls")),

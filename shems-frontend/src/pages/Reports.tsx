@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import AppShell from "../components/AppShell";
-import StatCard from "../components/StatCard";
 import {
   getMonthlyReports,
   getUserSettings,
@@ -25,23 +24,22 @@ import {
 } from "recharts";
 import {
   FileText,
-  Loader2,
   TrendingUp,
   TrendingDown,
   Zap,
-  Wallet,
   Download,
   Sun,
   BarChart3,
   CalendarRange,
   Lightbulb,
   ArrowRight,
-  ChevronDown,
+  Activity,
+  RefreshCw,
 } from "lucide-react";
 
 type ChartRow = MonthlyReport;
-
 type EnergyMetric = "kwh" | "cost";
+type SortKey = "name" | "kwh" | "cost";
 
 const PIE_COLORS = [
   "#4f46e5",
@@ -87,9 +85,7 @@ function BarTooltipContent({
         {metric === "kwh" && row.kwh > 0 && (
           <div className="flex justify-between gap-6 border-t border-slate-100 pt-1">
             <span className="text-slate-500">PKR / kWh</span>
-            <span className="tabular-nums text-slate-700">
-              PKR {(row.cost_pkr / row.kwh).toFixed(2)}
-            </span>
+            <span className="tabular-nums text-slate-700">PKR {(row.cost_pkr / row.kwh).toFixed(2)}</span>
           </div>
         )}
       </div>
@@ -192,7 +188,29 @@ function downloadCSV(data: MonthlyReportsResult, selectedMonth: string | null) {
   window.URL.revokeObjectURL(url);
 }
 
-type SortKey = "name" | "kwh" | "cost";
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded-xl px-3.5 py-2 text-sm font-medium ring-1 transition ${
+        active
+          ? "bg-indigo-600 text-white ring-indigo-600 shadow-sm shadow-indigo-500/20"
+          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function Reports() {
   const nav = useNavigate();
@@ -276,7 +294,7 @@ export default function Reports() {
 
   const deviceKwhTotal = useMemo(
     () => deviceRowsRaw.reduce((s, d) => s + d.kwh, 0),
-    [deviceRowsRaw],
+    [deviceRowsRaw]
   );
 
   const deviceChartData = useMemo(() => {
@@ -341,7 +359,7 @@ export default function Reports() {
       const label = selectedReport?.month_name ?? "this period";
       items.push({
         title: "Largest consumer",
-        detail: `${top.name} — ${top.kwh.toFixed(2)} kWh in ${label} (${deviceKwhTotal > 0 ? ((top.kwh / deviceKwhTotal) * 100).toFixed(0) : 0}% of usage shown in this view).`,
+        detail: `${top.name} — ${top.kwh.toFixed(2)} kWh in ${label} (${deviceKwhTotal > 0 ? ((top.kwh / deviceKwhTotal) * 100).toFixed(0) : 0}% of usage shown).`,
       });
     }
     return items;
@@ -362,10 +380,12 @@ export default function Reports() {
 
   if (loading) {
     return (
-      <AppShell title="Reports">
-        <div className="flex items-center justify-center gap-2 text-slate-600">
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-          Loading reports…
+      <AppShell>
+        <div className="mx-auto max-w-6xl py-16 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/20 text-indigo-600 animate-pulse">
+            <FileText className="h-6 w-6" />
+          </div>
+          <p className="mt-4 text-sm text-slate-500">Loading reports…</p>
         </div>
       </AppShell>
     );
@@ -373,18 +393,25 @@ export default function Reports() {
 
   if (error || !reports) {
     return (
-      <AppShell title="Reports">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <FileText className="mx-auto mb-4 h-12 w-12 text-slate-400" aria-hidden />
-          <h2 className="mb-2 text-xl font-semibold text-slate-900">No reports available</h2>
-          <p className="text-slate-600">{error || "Add devices and collect telemetry to see monthly summaries."}</p>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="mt-6 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-          >
-            Retry
-          </button>
+      <AppShell>
+        <div className="mx-auto max-w-6xl">
+          <div className="relative overflow-hidden rounded-3xl border border-dashed border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-10 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-500/30">
+              <FileText className="h-7 w-7" />
+            </div>
+            <p className="mt-5 text-lg font-semibold text-slate-900">No reports yet</p>
+            <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+              {error || "Add devices and collect telemetry to see monthly usage and cost summaries."}
+            </p>
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 text-white px-5 py-2.5 text-sm font-semibold shadow-md shadow-indigo-500/25 hover:bg-indigo-500 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </button>
+          </div>
         </div>
       </AppShell>
     );
@@ -400,217 +427,215 @@ export default function Reports() {
 
   return (
     <AppShell>
-      <div className="space-y-5">
-        {/* Intro */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-sm text-slate-500">
-              Your home&apos;s energy and cost over the last twelve months, using your tariff. Pick a month with the
-              chips below to see how usage splits across devices.
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-              {tariffPkrPerKwh != null && Number.isFinite(tariffPkrPerKwh) && (
-                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-600">
-                  Tariff: PKR {tariffPkrPerKwh.toFixed(2)} / kWh
-                </span>
-              )}
-              <Link
-                to="/settings"
-                className="inline-flex items-center gap-1 rounded-full text-indigo-600 hover:text-indigo-500"
-              >
-                Edit in settings
-                <ArrowRight className="h-3 w-3" aria-hidden />
-              </Link>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => downloadCSV(reports, selectedMonth)}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-500/20 hover:bg-indigo-500"
-          >
-            <Download className="h-4 w-4" aria-hidden />
-            Export CSV
-          </button>
-        </div>
-
-        {/* Summary cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="Total usage"
-            value={`${reports.total_kwh.toFixed(2)} kWh`}
-            subValue="Rolling 12 months"
-            icon={<Zap className="h-5 w-5" />}
-            color="green"
-          />
-          <StatCard
-            title="Total cost"
-            value={`PKR ${reports.total_cost_pkr.toFixed(2)}`}
-            subValue="Rolling 12 months"
-            icon={<Wallet className="h-5 w-5" />}
-            color="indigo"
-          />
-          <StatCard
-            title="Avg monthly usage"
-            value={`${reports.average_monthly_kwh.toFixed(2)} kWh`}
-            subValue="Mean per month in window"
-            icon={<TrendingUp className="h-5 w-5" />}
-            color="blue"
-          />
-          <StatCard
-            title="Avg monthly cost"
-            value={`PKR ${reports.average_monthly_cost.toFixed(2)}`}
-            subValue="Mean per month in window"
-            icon={<Wallet className="h-5 w-5" />}
-            color="purple"
-          />
-        </div>
-
-        {/* Month spotlight */}
-        {selectedReport && (
-          <section className="overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white via-indigo-50/30 to-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                  <CalendarRange className="h-3.5 w-3.5" aria-hidden />
-                  Selected month
+      <div className="mx-auto max-w-6xl space-y-6">
+        {/* Hero — 12-month summary */}
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-indigo-900 text-white shadow-xl shadow-indigo-900/20">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-indigo-500/20 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 left-1/4 h-48 w-48 rounded-full bg-violet-500/15 blur-3xl" />
+          <div className="relative p-6 md:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-indigo-200">Usage history</p>
+                <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Energy reports</h1>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-indigo-100 ring-1 ring-white/10">
+                    Rolling 12 months
+                  </span>
+                  {tariffPkrPerKwh != null && Number.isFinite(tariffPkrPerKwh) && (
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-indigo-100 ring-1 ring-white/10">
+                      PKR {tariffPkrPerKwh.toFixed(2)} / kWh
+                    </span>
+                  )}
+                  {selectedReport && (
+                    <span className="rounded-full bg-indigo-500/30 px-3 py-1 text-xs font-medium text-indigo-100 ring-1 ring-indigo-400/30">
+                      Viewing {selectedReport.month_name}
+                    </span>
+                  )}
                 </div>
-                <h2 className="mt-1 text-2xl font-semibold text-slate-900">{selectedReport.month_name}</h2>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 transition-colors"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadCSV(reports, selectedMonth)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50 transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Total usage</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {reports.total_kwh.toFixed(1)}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kWh</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Total cost</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {reports.total_cost_pkr.toFixed(0)}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">PKR</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Avg monthly</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {reports.average_monthly_kwh.toFixed(1)}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">kWh</span>
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Avg cost</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">
+                  {reports.average_monthly_cost.toFixed(0)}
+                  <span className="ml-1 text-lg font-semibold text-indigo-200">PKR</span>
+                </p>
+              </div>
+            </div>
+
+            {selectedReport && (
+              <div className="mt-6 rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <div className="text-xs text-slate-500">Energy</div>
-                    <div className="text-xl font-semibold tabular-nums text-slate-900">
-                      {selectedReport.kwh.toFixed(2)} kWh
-                    </div>
-                    {kwhDelta && prevMonthReport && (
-                      <div
-                        className={`mt-1 inline-flex items-center gap-1 text-xs font-medium ${
-                          kwhDelta.up ? "text-amber-700" : "text-emerald-700"
-                        }`}
-                      >
-                        {kwhDelta.up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-                        {kwhDelta.text} vs {prevMonthReport.month_name}
-                      </div>
-                    )}
+                    <p className="text-xs font-medium uppercase tracking-wider text-indigo-200">Selected month</p>
+                    <p className="mt-1 text-xl font-bold">{selectedReport.month_name}</p>
                   </div>
-                  <div>
-                    <div className="text-xs text-slate-500">Cost</div>
-                    <div className="text-xl font-semibold tabular-nums text-indigo-700">
-                      PKR {selectedReport.cost_pkr.toFixed(2)}
+                  <div className="grid gap-4 sm:grid-cols-2 sm:gap-8">
+                    <div>
+                      <p className="text-xs text-indigo-200/80">Energy</p>
+                      <p className="text-2xl font-bold tabular-nums">{selectedReport.kwh.toFixed(2)} kWh</p>
+                      {kwhDelta && prevMonthReport && (
+                        <p className={`mt-1 flex items-center gap-1 text-xs font-medium ${kwhDelta.up ? "text-amber-200" : "text-emerald-200"}`}>
+                          {kwhDelta.up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                          {kwhDelta.text} vs {prevMonthReport.month_name}
+                        </p>
+                      )}
                     </div>
-                    {costDelta && prevMonthReport && (
-                      <div
-                        className={`mt-1 inline-flex items-center gap-1 text-xs font-medium ${
-                          costDelta.up ? "text-amber-700" : "text-emerald-700"
-                        }`}
-                      >
-                        {costDelta.up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-                        {costDelta.text} vs {prevMonthReport.month_name}
-                      </div>
-                    )}
+                    <div>
+                      <p className="text-xs text-indigo-200/80">Cost</p>
+                      <p className="text-2xl font-bold tabular-nums">PKR {selectedReport.cost_pkr.toFixed(0)}</p>
+                      {costDelta && prevMonthReport && (
+                        <p className={`mt-1 flex items-center gap-1 text-xs font-medium ${costDelta.up ? "text-amber-200" : "text-emerald-200"}`}>
+                          {costDelta.up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                          {costDelta.text} vs {prevMonthReport.month_name}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
                 {vsAvgKwh != null && Number.isFinite(vsAvgKwh) && (
-                  <p className="mt-4 text-sm text-slate-600">
+                  <p className="mt-3 text-sm text-indigo-200/90">
                     {vsAvgKwh >= 0 ? "Above" : "Below"} your 12-month average by{" "}
-                    <span className="font-semibold tabular-nums text-slate-900">{Math.abs(vsAvgKwh).toFixed(1)}%</span>{" "}
-                    on usage.
+                    <span className="font-semibold text-white">{Math.abs(vsAvgKwh).toFixed(1)}%</span> on usage.
                   </p>
                 )}
               </div>
+            )}
+          </div>
+        </section>
 
-              <div className="flex w-full flex-col gap-2 lg:max-w-md">
-                <span className="text-xs font-medium text-slate-500">Jump to month</span>
-                <div className="flex flex-wrap gap-2">
-                  {reports.monthly_reports.map((m) => (
-                    <button
-                      key={m.month}
-                      type="button"
-                      onClick={() => setSelectedMonth(m.month)}
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                        selectedMonth === m.month
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "border border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50/50"
-                      }`}
-                    >
-                      {m.month_name}
-                    </button>
-                  ))}
-                </div>
-                <label className="mt-2 flex flex-col gap-1.5 text-xs text-slate-500 sm:flex-row sm:items-center sm:gap-2">
-                  <span className="shrink-0 font-medium text-slate-600">Or choose</span>
-                  <div className="relative min-w-0 flex-1">
-                    <select
-                      className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-9 text-sm text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
-                      value={selectedMonth ?? reports.monthly_reports[0]?.month ?? ""}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                    >
-                      {reports.monthly_reports.map((m) => (
-                        <option key={m.month} value={m.month}>
-                          {m.month_name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
-                  </div>
-                </label>
+        {/* Month picker */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+                <CalendarRange className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Pick a month</h2>
+                <p className="text-xs text-slate-500">Tap a month to update device breakdown below</p>
               </div>
             </div>
-          </section>
-        )}
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Edit tariff
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          <div className="-mx-1 flex gap-2 overflow-x-auto pb-1 px-1">
+            {reports.monthly_reports.map((m) => (
+              <button
+                key={m.month}
+                type="button"
+                onClick={() => setSelectedMonth(m.month)}
+                className={`shrink-0 rounded-xl border px-4 py-3 text-left transition-all min-w-[7rem] ${
+                  selectedMonth === m.month
+                    ? "border-indigo-500 bg-indigo-600 text-white shadow-lg shadow-indigo-500/25"
+                    : "border-slate-200 bg-slate-50/50 hover:border-indigo-200 hover:bg-white"
+                }`}
+              >
+                <p className={`text-sm font-semibold ${selectedMonth === m.month ? "text-white" : "text-slate-900"}`}>
+                  {m.month_name.split(" ")[0]}
+                </p>
+                <p className={`mt-0.5 text-xs tabular-nums ${selectedMonth === m.month ? "text-indigo-100" : "text-slate-500"}`}>
+                  {m.kwh.toFixed(1)} kWh
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
 
         {/* Insights */}
         {insights.length > 0 && (
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
-                <Lightbulb className="h-4 w-4" aria-hidden />
+          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-md shadow-amber-500/25">
+                <Lightbulb className="h-5 w-5" />
               </span>
-              <h3 className="text-sm font-semibold text-slate-900">Quick insights</h3>
+              <div>
+                <h2 className="font-semibold text-slate-900">Quick insights</h2>
+                <p className="text-xs text-slate-500">Highlights from your usage history</p>
+              </div>
             </div>
-            <ul className="space-y-2 text-sm text-slate-600">
+            <ul className="grid gap-3 sm:grid-cols-3">
               {insights.map((item) => (
-                <li key={item.title} className="flex gap-2 border-l-2 border-indigo-200 pl-3">
-                  <span className="shrink-0 font-medium text-slate-800">{item.title}:</span>
-                  <span>{item.detail}</span>
+                <li
+                  key={item.title}
+                  className="rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50 to-indigo-50/30 px-4 py-3"
+                >
+                  <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-xs text-slate-600 leading-relaxed">{item.detail}</p>
                 </li>
               ))}
             </ul>
           </section>
         )}
 
-        {/* Main chart */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-indigo-600" aria-hidden />
-              <h2 className="font-semibold text-slate-900">Monthly trend</h2>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <div className="inline-flex rounded-xl border border-slate-200 p-0.5 text-xs font-medium">
-                <button
-                  type="button"
-                  onClick={() => setEnergyMetric("kwh")}
-                  className={`rounded-lg px-3 py-1.5 transition ${
-                    energyMetric === "kwh" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  kWh
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEnergyMetric("cost")}
-                  className={`rounded-lg px-3 py-1.5 transition ${
-                    energyMetric === "cost" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  Cost (PKR)
-                </button>
+        {/* Monthly trend chart */}
+        <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+                <BarChart3 className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Monthly trend</h2>
+                <p className="text-xs text-slate-500">Click a bar to select that month</p>
               </div>
             </div>
+            <div className="flex gap-2">
+              <FilterPill active={energyMetric === "kwh"} onClick={() => setEnergyMetric("kwh")}>
+                kWh
+              </FilterPill>
+              <FilterPill active={energyMetric === "cost"} onClick={() => setEnergyMetric("cost")}>
+                Cost (PKR)
+              </FilterPill>
+            </div>
           </div>
-          <p className="mb-4 text-xs text-slate-500">
-            Bars are oldest → newest. Click a bar to select that month for the device table and pie.
-          </p>
+
           <div className="h-80 w-full min-h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartRowsChrono} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
@@ -663,63 +688,68 @@ export default function Reports() {
           </div>
         </section>
 
-        <div className="grid gap-5 lg:grid-cols-2">
-          {/* Device table + pie */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:col-span-2">
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Device breakdown */}
+          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 lg:col-span-2">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+                <Zap className="h-5 w-5" />
+              </span>
               <div>
                 <h2 className="font-semibold text-slate-900">By device</h2>
                 <p className="text-xs text-slate-500">
                   {selectedReport
-                    ? `Shares for ${selectedReport.month_name} (or 12-mo totals if no per-month data).`
-                    : "Breakdown by device."}
+                    ? `Usage split for ${selectedReport.month_name}`
+                    : "Breakdown by device"}
                 </p>
               </div>
             </div>
 
             {deviceTableRows.length > 0 ? (
               <div className="grid gap-6 lg:grid-cols-5">
-                <div className="overflow-x-auto lg:col-span-3">
-                  <table className="w-full min-w-[320px] text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-xs font-medium uppercase tracking-wide text-slate-500">
-                        <th className="pb-2 pr-2">
-                          <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("name")}>
-                            Device {sortKey === "name" ? (sortDesc ? "↓" : "↑") : ""}
-                          </button>
-                        </th>
-                        <th className="pb-2 pr-2">Room</th>
-                        <th className="pb-2 pr-2 text-right">
-                          <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("kwh")}>
-                            kWh {sortKey === "kwh" ? (sortDesc ? "↓" : "↑") : ""}
-                          </button>
-                        </th>
-                        <th className="pb-2 text-right">
-                          <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("cost")}>
-                            Cost {sortKey === "cost" ? (sortDesc ? "↓" : "↑") : ""}
-                          </button>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deviceTableRows.map((d) => (
-                        <tr key={d.device_id} className="border-b border-slate-100 last:border-0">
-                          <td className="py-2.5 pr-2 font-medium text-slate-900">{d.name}</td>
-                          <td className="py-2.5 pr-2 text-slate-600">{d.room || "—"}</td>
-                          <td className="py-2.5 pr-2 text-right tabular-nums text-slate-800">{d.kwh.toFixed(2)}</td>
-                          <td className="py-2.5 text-right tabular-nums text-indigo-700">
-                            PKR {d.cost_pkr.toFixed(2)}
-                          </td>
+                <div className="lg:col-span-3 space-y-4">
+                  <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200">
+                    <table className="w-full min-w-[320px] text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+                          <th className="px-4 py-3">
+                            <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("name")}>
+                              Device {sortKey === "name" ? (sortDesc ? "↓" : "↑") : ""}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3">Room</th>
+                          <th className="px-4 py-3 text-right">
+                            <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("kwh")}>
+                              kWh {sortKey === "kwh" ? (sortDesc ? "↓" : "↑") : ""}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3 text-right">
+                            <button type="button" className="hover:text-indigo-600" onClick={() => toggleSort("cost")}>
+                              Cost {sortKey === "cost" ? (sortDesc ? "↓" : "↑") : ""}
+                            </button>
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="mt-4 space-y-2">
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {deviceTableRows.map((d) => (
+                          <tr key={d.device_id} className="hover:bg-indigo-50/30 transition-colors">
+                            <td className="px-4 py-2.5 font-medium text-slate-900">{d.name}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{d.room || "—"}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">{d.kwh.toFixed(2)}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums font-medium text-indigo-700">
+                              PKR {d.cost_pkr.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="space-y-3">
                     {deviceTableRows.map((d) => (
                       <div key={`bar-${d.device_id}`}>
-                        <div className="mb-0.5 flex justify-between text-xs text-slate-500">
-                          <span className="truncate pr-2">{d.name}</span>
-                          <span className="shrink-0 tabular-nums">{d.pctKwh.toFixed(0)}% of usage</span>
+                        <div className="mb-1 flex justify-between text-xs text-slate-500">
+                          <span className="truncate pr-2 font-medium text-slate-700">{d.name}</span>
+                          <span className="shrink-0 tabular-nums">{d.pctKwh.toFixed(0)}%</span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                           <div
@@ -732,7 +762,7 @@ export default function Reports() {
                   </div>
                 </div>
                 <div className="min-h-[260px] lg:col-span-2">
-                  <h3 className="mb-2 text-center text-xs font-medium text-slate-500">Cost mix</h3>
+                  <p className="mb-2 text-center text-xs font-medium uppercase tracking-wide text-slate-500">Cost mix</p>
                   <ResponsiveContainer width="100%" height={280}>
                     <PieChart>
                       <Pie
@@ -756,22 +786,24 @@ export default function Reports() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 py-12 text-center text-sm text-slate-500">
-                No per-device usage for this view. Check that devices are online and sending readings for the selected
-                month.
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-12 text-center text-sm text-slate-500">
+                No per-device usage for this month. Check that meters are online and sending readings.
               </div>
             )}
           </section>
 
           {/* Solar vs grid */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:col-span-2">
-            <h2 className="mb-1 flex items-center gap-2 font-semibold text-slate-900">
-              <Sun className="h-5 w-5 text-amber-500" aria-hidden />
-              Solar vs grid (estimated)
-            </h2>
-            <p className="mb-4 text-xs text-slate-500">
-              Solar share uses your saved capacity and a simple yield model; grid is the remainder of total usage.
-            </p>
+          <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 lg:col-span-2">
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-md shadow-amber-500/25">
+                <Sun className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-semibold text-slate-900">Solar vs grid</h2>
+                <p className="text-xs text-slate-500">Estimated 12-month energy source split</p>
+              </div>
+            </div>
+
             {solarGridData.length > 0 ? (
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="h-64">
@@ -794,28 +826,33 @@ export default function Reports() {
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex flex-col justify-center space-y-3 text-sm">
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                    <div className="text-xs text-slate-500">Solar (estimated)</div>
-                    <div className="text-lg font-semibold tabular-nums text-amber-700">
+                <div className="flex flex-col justify-center gap-3">
+                  <div className="rounded-xl bg-gradient-to-br from-amber-50 to-white p-4 ring-1 ring-amber-100">
+                    <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Solar (estimated)</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums text-amber-800">
                       {reports.solar_kwh.toFixed(2)} kWh
-                    </div>
+                    </p>
                   </div>
-                  <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-4">
-                    <div className="text-xs text-slate-500">From grid</div>
-                    <div className="text-lg font-semibold tabular-nums text-indigo-700">
+                  <div className="rounded-xl bg-gradient-to-br from-indigo-50 to-white p-4 ring-1 ring-indigo-100">
+                    <p className="text-xs font-medium uppercase tracking-wide text-indigo-700">From grid</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums text-indigo-800">
                       {reports.grid_kwh.toFixed(2)} kWh
-                    </div>
+                    </p>
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 py-10 text-center text-sm text-slate-500">
-                Enable solar in settings to see an estimated split.
+              <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/30 py-10 text-center text-sm text-slate-600">
+                Enable solar in Settings to see an estimated split.
               </div>
             )}
           </section>
         </div>
+
+        <p className="flex items-center justify-center gap-1.5 pb-2 text-center text-xs text-slate-400">
+          <Activity className="h-3.5 w-3.5" />
+          Costs use your saved tariff · click chart bars or month chips to explore
+        </p>
       </div>
     </AppShell>
   );

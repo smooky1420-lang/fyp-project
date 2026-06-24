@@ -44,11 +44,11 @@ export default function TopBar({ pageTitle }: TopBarProps) {
               ) : null}
             </button>
 
-            {/* Profile placeholder */}
             <button
               type="button"
+              onClick={() => nav("/settings")}
               className="rounded-xl bg-white ring-1 ring-slate-200 p-2 hover:bg-slate-50"
-              title="Profile (coming soon)"
+              title="Account settings"
             >
               <User className="h-4 w-4 text-slate-600" />
             </button>

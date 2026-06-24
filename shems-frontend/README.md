@@ -43,4 +43,4 @@ npm run preview
 - `src/pages/` — Dashboard, Monitoring, Devices, Predictions, Reports, Settings, etc.
 - `src/components/` — Layout (`AppShell`, `TopBar`), **`UsageChart`** (Dashboard), and other shared UI.
 
-For architecture and backend commands (synthetic data, `train_predictor`), see the repo root **`ARCHITECTURE_SUMMARY.md`** and **`QUICK_CHEAT_SHEET.md`**. Frontend tips: **`FRONTEND_QUICK_REFERENCE.md`**.
+For architecture and **every useful command** (backend, frontend, synthetic data, `train_predictor`, demo flow), see the repo root **`QUICK_CHEAT_SHEET.md`**. Deep design: **`ARCHITECTURE_SUMMARY.md`**. Frontend tips: **`FRONTEND_QUICK_REFERENCE.md`**.

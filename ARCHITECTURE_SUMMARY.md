@@ -1,4 +1,7 @@
-# SHEMS (Smart Home Energy Management System) - Architecture Summary
+# SHEMS / WattGuard — Architecture Summary
+
+> **FYP name:** SHEMS · **UI product name:** WattGuard (same codebase).  
+> **Recent changes:** see **`LAST_UPDATE.md`** (2026-06-24: auth, alerts API, solar fallback, Help page, firmware state sync).
 
 ## 1. Overall Architecture Overview
 
@@ -34,7 +37,8 @@ The system follows a **3-tier architecture**:
 1. **Frontend Request** (`src/lib/api.ts`)
    - User action triggers `getTelemetryRange(deviceId, from, to)`
    - Function calls `authFetch()` which:
-     - Retrieves JWT token from localStorage
+     - Retrieves JWT from localStorage or sessionStorage
+     - On **401**, attempts **refresh** via `/api/auth/refresh/` then retries
      - Adds `Authorization: Bearer <token>` header
      - Makes GET request to `/api/telemetry/range/?device_id=1&from=...&to=...`
 
@@ -128,7 +132,7 @@ The `src/lib/` folder contains **shared utility modules** for the frontend:
 - **Maintainability**: API changes only need updates in one place
 
 ### Other `/lib/` Files:
-- `alerts.ts`: Alert/notification utilities
+- `alerts.ts`: Fetches `GET /api/alerts/`, merges read/dismissed state in localStorage
 - `errors.ts`: Error handling utilities
 
 ---
@@ -484,16 +488,42 @@ High-level behavior of main React pages under `shems-frontend/src/pages/` (see a
 
 | Area | Behavior |
 |------|----------|
-| **Dashboard** | Today’s home totals, live device status, **today-by-device** chips, and **`UsageChart`** (`src/components/UsageChart.tsx`) for day/week/month with rolling time windows aligned to the API. Styling uses indigo accents consistent with the rest of the app; stale/offline telemetry is handled in usage display. |
-| **Devices** | **Add device** is a collapsible section (collapsed when you already have devices; opens automatically if the list is empty). Per-device cards: token copy feedback, relay for controllable loads, **limits & schedule** with fixed-height labels/inputs so number and time fields align. |
-| **Reports** | Loads **`GET /api/settings/monthly-reports/`** once per visit. Summary stat cards, **selected-month** panel (energy/cost, vs previous month, vs 12-month average), **month chips** plus **dropdown**, bar chart with **kWh vs cost** toggle and **click bar** to select month. **By device**: sortable table, usage share bars, cost donut. **Quick insights**, solar vs grid (estimated), **CSV export** (includes selected-month device rows when `device_monthly_breakdown` is present). Tariff pill uses **`getUserSettings()`** with numeric coercion — Django may serialize `tariff_pkr_per_kwh` as a string. |
-| **Monitoring** | Per-device telemetry charts over a chosen range. |
-| **Predictions** | ML forecast vs recent actuals; model metadata when `predictor.joblib` is trained. |
-| **Settings / Solar / Alerts** | Tariff and calculator; solar config and status; alerts UI. |
+| **Dashboard** | Today’s totals, live status, today-by-device chips, **UsageChart**, optional solar card, top **energy tips** (recommendations), polls **alerts** every 30s. |
+| **Devices** | Collapsible add form; CRUD; token copy; relay; limits & schedule; ESP32 reads state via token. |
+| **Monitoring** | Per-device or **home total** charts; home energy uses **delta sum** across meters. |
+| **Reports** | 12-month API; month selection; device breakdown; solar/grid uses **SolarGeneration** history when available. |
+| **Predictions** | ML forecast + full recommendations list. |
+| **Settings** | Tariff, calculator with **use & save**, solar config. |
+| **Solar** | Weather-based estimates; **fallback** if OpenWeather unavailable. |
+| **Alerts** | **`GET /api/alerts/`** (offline, high usage, limits); auto-refresh; dismiss in UI. |
+| **Help** | **`/help`** — end-user guide & FAQ (no developer commands). |
+| **Auth** | `ProtectedRoute` on app pages; signup **auto-login**. |
 
-**Repository documentation (root):** `ARCHITECTURE_SUMMARY.md` (this file), `QUICK_CHEAT_SHEET.md`, `FRONTEND_QUICK_REFERENCE.md`, `PROJECT_REPORT_QUICK_SUMMARY.md`, `DATABASE_SCHEMA_SUMMARY.md`, `HARDWARE_CIRCUIT_GUIDE.md`.
+**Repository documentation (root):** `LAST_UPDATE.md` (dated change log), `ARCHITECTURE_SUMMARY.md` (this file), `QUICK_CHEAT_SHEET.md`, `FRONTEND_QUICK_REFERENCE.md`, `PROJECT_REPORT_QUICK_SUMMARY.md`, `DATABASE_SCHEMA_SUMMARY.md`, `HARDWARE_CIRCUIT_GUIDE.md`.
 
 ---
 
-This architecture provides a scalable, maintainable system for monitoring and managing home energy consumption with solar integration and intelligent tariff calculations.
+## 13. Alerts API (computed, not a DB table)
+
+Alerts are **recomputed on each request** — not stored in SQLite.
+
+- **Endpoint:** `GET /api/alerts/` (JWT)
+- **Logic:** `shems-backend/telemetry/alerts_service.py`
+- **Rules:** device offline (>2 min), power >2.5 kW, `power_limit_w` exceeded, `daily_energy_limit_kwh` exceeded
+- **Frontend:** `refreshAlerts()` caches results; read/dismissed IDs in `localStorage`
+
+---
+
+## 14. Hardware loop (ESP32)
+
+```
+ESP32 ──POST──> /api/telemetry/upload/     (X-DEVICE-TOKEN)
+ESP32 ──GET───> /api/devices/state-by-token/  (relay_on, limits, schedule)
+```
+
+Firmware: `firmware/esp32_dummy_telemetry/`. Optional PZEM via `USE_PZEM` and PZEM004Tv30 library.
+
+---
+
+This architecture provides a scalable, maintainable system for monitoring and managing home energy consumption with solar integration, live alerts, and intelligent tariff calculations.
 

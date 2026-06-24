@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, User, Lock } from "lucide-react";
-import { loginUser, setTokens } from "../lib/api";
+import { loginUser, setSessionTokens, setTokens } from "../lib/api";
 import { getErrorMessage } from "../lib/errors";
 
 export default function Login() {
@@ -22,15 +22,9 @@ export default function Login() {
 
       // MVP: localStorage. If you later add "remember me" properly, you can switch to sessionStorage.
       if (!remember) {
-        // quick behavior: store in sessionStorage instead
-        sessionStorage.setItem("access", t.access);
-        sessionStorage.setItem("refresh", t.refresh);
-        localStorage.removeItem("access");
-        localStorage.removeItem("refresh");
+        setSessionTokens(t);
       } else {
         setTokens(t);
-        sessionStorage.removeItem("access");
-        sessionStorage.removeItem("refresh");
       }
 
       nav("/dashboard");
@@ -112,14 +106,6 @@ export default function Login() {
                 />
                 Remember me
               </label>
-
-              <button
-                type="button"
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
-                onClick={() => setMsg("Password reset can be added in future.")}
-              >
-                Forgot password?
-              </button>
             </div>
 
             {msg && (
@@ -140,6 +126,10 @@ export default function Login() {
               Don&apos;t have an account?{" "}
               <Link className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors" to="/signup">
                 Create one
+              </Link>
+              {" · "}
+              <Link className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors" to="/help">
+                User guide
               </Link>
             </p>
           </form>
