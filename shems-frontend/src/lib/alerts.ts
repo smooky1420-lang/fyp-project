@@ -1,4 +1,9 @@
-import { getLiveAlerts } from "./api";
+import {
+  clearAllAlerts as clearAllAlertsApi,
+  dismissAlerts as dismissAlertsApi,
+  getLiveAlerts,
+  markAlertsRead as markAlertsReadApi,
+} from "./api";
 
 export type AlertType = "offline" | "high" | "limit" | "daily_limit";
 
@@ -8,32 +13,29 @@ export type AlertRecord = {
   title: string;
   message: string;
   created_at: string;
+  resolved_at: string | null;
+  active: boolean;
   read: boolean;
   device_id?: number;
 };
 
-const READ_KEY = "wattguard_alerts_read_v1";
-const DISMISSED_KEY = "wattguard_alerts_dismissed_v1";
-const CACHE_KEY = "wattguard_alerts_cache_v1";
+const CACHE_KEY = "wattguard_alerts_cache_v2";
 
-function readIdSet(key: string): Set<string> {
+/** Alert ids already seen this session — only brand-new ids trigger a desktop notification. */
+let seenAlertIds = new Set<string>(readCacheIds());
+
+function readCacheIds(): string[] {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return new Set();
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((x): x is string => typeof x === "string"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((a) => (a && typeof a === "object" && "id" in a ? String((a as AlertRecord).id) : ""))
+      .filter(Boolean);
   } catch {
-    return new Set();
+    return [];
   }
-}
-
-function writeIdSet(key: string, ids: Set<string>) {
-  localStorage.setItem(key, JSON.stringify(Array.from(ids)));
-}
-
-function notifyChanged() {
-  window.dispatchEvent(new Event("shems-alerts-changed"));
 }
 
 function readCache(): AlertRecord[] {
@@ -49,62 +51,169 @@ function readCache(): AlertRecord[] {
 
 function writeCache(items: AlertRecord[]) {
   localStorage.setItem(CACHE_KEY, JSON.stringify(items));
-  notifyChanged();
+  window.dispatchEvent(new Event("shems-alerts-changed"));
 }
 
-function mergeAlerts(fromApi: Array<Omit<AlertRecord, "read"> & { read?: boolean }>): AlertRecord[] {
-  const readIds = readIdSet(READ_KEY);
-  const dismissed = readIdSet(DISMISSED_KEY);
-  return fromApi
-    .filter((a) => !dismissed.has(a.id))
-    .map((a) => ({
-      ...a,
-      type: a.type as AlertType,
-      read: readIds.has(a.id),
-    }));
+function mapApiAlert(
+  a: Awaited<ReturnType<typeof getLiveAlerts>>[number]
+): AlertRecord {
+  return {
+    id: a.id,
+    type: a.type as AlertType,
+    title: a.title,
+    message: a.message,
+    created_at: a.created_at,
+    resolved_at: a.resolved_at ?? null,
+    active: a.active,
+    read: a.read,
+    device_id: a.device_id,
+  };
 }
 
-/** Fetch live alerts from API and update local cache. */
+export function canUseBrowserNotifications(): boolean {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
+export function notificationPermission(): NotificationPermission | "unsupported" {
+  if (!canUseBrowserNotifications()) return "unsupported";
+  return Notification.permission;
+}
+
+export function notificationsEnabled(): boolean {
+  return notificationPermission() === "granted";
+}
+
+/** Ask the browser for notification permission (must be called from a user click). */
+export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (!canUseBrowserNotifications()) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  if (Notification.permission === "denied") return "denied";
+  return Notification.requestPermission();
+}
+
+function showBrowserNotification(alert: AlertRecord): boolean {
+  if (!canUseBrowserNotifications()) return false;
+  if (Notification.permission !== "granted") return false;
+  if (!alert.active) return false;
+
+  try {
+    const n = new Notification(alert.title, {
+      body: alert.message,
+      tag: `wattguard-alert-${alert.id}`,
+      icon: "/vite.svg",
+      requireInteraction: true,
+    });
+    n.onclick = () => {
+      window.focus();
+      window.location.assign("/alerts");
+      n.close();
+    };
+    return true;
+  } catch (err) {
+    console.warn("WattGuard: could not show notification", err);
+    return false;
+  }
+}
+
+/** Confirm notifications work — call right after the user grants permission. */
+export function showTestNotification(): boolean {
+  if (!canUseBrowserNotifications() || Notification.permission !== "granted") return false;
+  try {
+    const n = new Notification("WattGuard alerts enabled", {
+      body: "You'll get a desktop ping when a device goes offline or exceeds a limit.",
+      tag: "wattguard-test",
+      icon: "/vite.svg",
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+    return true;
+  } catch (err) {
+    console.warn("WattGuard: test notification failed", err);
+    return false;
+  }
+}
+
+function processAlertNotifications(items: AlertRecord[]) {
+  if (Notification.permission !== "granted") return;
+
+  const brandNew = items.filter(
+    (a) => a.active && !a.read && !seenAlertIds.has(a.id)
+  );
+
+  for (const alert of brandNew) {
+    showBrowserNotification(alert);
+  }
+
+  seenAlertIds = new Set(items.map((a) => a.id));
+}
+
+/** Notify for all current active unread alerts (call once after the user grants permission). */
+export function notifyActiveUnread(items: AlertRecord[]) {
+  if (Notification.permission !== "granted") return;
+  for (const alert of items) {
+    if (alert.active && !alert.read) {
+      showBrowserNotification(alert);
+    }
+  }
+  seenAlertIds = new Set(items.map((a) => a.id));
+}
+
+/** After permission grant, treat active unread alerts as not yet announced. */
+export function primeNotificationsForEnable() {
+  const cached = readCache();
+  seenAlertIds = new Set(
+    cached.filter((a) => !a.active || a.read).map((a) => a.id)
+  );
+}
+
+/** Fetch alerts from API, update cache, and fire desktop notifications for new active alerts. */
 export async function refreshAlerts(): Promise<AlertRecord[]> {
   const fromApi = await getLiveAlerts();
-  const merged = mergeAlerts(
-    fromApi.map((a) => ({ ...a, type: a.type as AlertType }))
+  const items = fromApi.map(mapApiAlert).sort((a, b) =>
+    a.created_at < b.created_at ? 1 : -1
   );
-  writeCache(merged);
-  return merged;
+  processAlertNotifications(items);
+  writeCache(items);
+  return items;
 }
 
 export function getAlerts(): AlertRecord[] {
-  return readCache().sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  return readCache();
 }
 
 export function getUnreadAlertCount(): number {
   return readCache().filter((a) => !a.read).length;
 }
 
-export function markAlertsRead(ids: string[]) {
-  const readIds = readIdSet(READ_KEY);
-  ids.forEach((id) => readIds.add(id));
-  writeIdSet(READ_KEY, readIds);
-  const updated = readCache().map((a) => (ids.includes(a.id) ? { ...a, read: true } : a));
+export function getActiveAlertCount(): number {
+  return readCache().filter((a) => a.active).length;
+}
+
+export async function markAlertsRead(ids: string[]) {
+  if (!ids.length) return;
+  await markAlertsReadApi(ids.map((id) => Number(id)));
+  const idSet = new Set(ids);
+  const updated = readCache().map((a) =>
+    idSet.has(a.id) ? { ...a, read: true } : a
+  );
   writeCache(updated);
 }
 
-export function deleteAlerts(ids: string[]) {
-  const dismissed = readIdSet(DISMISSED_KEY);
-  ids.forEach((id) => dismissed.add(id));
-  writeIdSet(DISMISSED_KEY, dismissed);
-  writeCache(readCache().filter((a) => !ids.includes(a.id)));
+export async function deleteAlerts(ids: string[]) {
+  if (!ids.length) return;
+  await dismissAlertsApi(ids.map((id) => Number(id)));
+  const idSet = new Set(ids);
+  writeCache(readCache().filter((a) => !idSet.has(a.id)));
 }
 
-export function clearAllAlerts() {
-  const dismissed = readIdSet(DISMISSED_KEY);
-  readCache().forEach((a) => dismissed.add(a.id));
-  writeIdSet(DISMISSED_KEY, dismissed);
+export async function clearAllAlerts() {
+  await clearAllAlertsApi();
   writeCache([]);
 }
 
-/** @deprecated Use refreshAlerts — kept for gradual migration */
+/** @deprecated Use refreshAlerts */
 export function upsertAlerts(_newOnes: AlertRecord[]) {
   void refreshAlerts().catch(() => void 0);
 }

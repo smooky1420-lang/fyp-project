@@ -82,7 +82,7 @@ Hardware uses the **device token**, not the user password. ESP32 also **polls** 
 4. **System design** — 3-tier: React ↔ REST API ↔ DB; JWT + device token.
 5. **Implementation** — Modules listed in features above; Random Forest; ESP32 integration.
 6. **Testing / demo** — API tests; screenshots; Help page; live ESP32 optional.
-7. **Conclusion & future work** — PostgreSQL, per-user ML models, push notifications, etc.
+7. **Conclusion & future work** — PostgreSQL, per-user ML models, push notifications, **optional DISCO protection status** (user-declared or imported billing history until 6 months of in-app telemetry), usage milestone alerts, fixed charges/taxes on IESCO bills, etc.
 
 ---
 

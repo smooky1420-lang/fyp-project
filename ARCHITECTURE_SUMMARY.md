@@ -525,5 +525,22 @@ Firmware: `firmware/esp32_dummy_telemetry/`. Optional PZEM via `USE_PZEM` and PZ
 
 ---
 
+## 15. Future work (FYP scope vs later)
+
+Items intentionally deferred or partially implemented — suitable for report **Conclusion / Future work**:
+
+| Area | Current behaviour | Possible extension |
+|------|-------------------|-------------------|
+| **Protected vs unprotected consumer** | Inferred from last 6 months of **in-app** usage; new users default to protected until history exists | Optional Settings toggle or onboarding question (“under 200 units/month for last 6 months per DISCO records”) until enough telemetry is collected; later replace with imported billing history |
+| **Database** | SQLite (dev) | PostgreSQL for production |
+| **ML** | Pooled Random Forest, manual `train_predictor` | Per-user models, scheduled retraining, spike scenarios labelled in UI |
+| **Alerts** | Stored `AlertEvent`, browser notifications | Mobile push (FCM), usage tier milestones (50/100/180/200 units) |
+| **Billing** | Variable slab rates from admin `TariffPlan` | Fixed charges, FCA, taxes per IESCO bill |
+| **Solar** | Weather estimate + history | Hardware inverter API, net metering |
+
+**Rationale for deferring protection onboarding:** Real DISCO classification depends on six months of **verified** consumption. A signup checkbox is unverifiable and awkward when the app has zero prior months; self-report plus partial in-app history adds edge cases without improving demo accuracy. Defaulting to protected until telemetry proves otherwise is sufficient for v1.
+
+---
+
 This architecture provides a scalable, maintainable system for monitoring and managing home energy consumption with solar integration, live alerts, and intelligent tariff calculations.
 

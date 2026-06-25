@@ -145,7 +145,7 @@ export default function Settings() {
   }
 
   async function applyCalculatedTariff() {
-    const rate = tariffCalc?.calculated_tariff;
+    const rate = tariffCalc?.effective_pkr_per_kwh ?? tariffCalc?.calculated_tariff;
     if (rate === null || rate === undefined) return;
     setUseCalculatedTariff(true);
     setTariff(String(rate));
@@ -320,13 +320,63 @@ export default function Settings() {
                     <span className="text-sm font-semibold text-indigo-900">IESCO-style calculator</span>
                   </div>
                   {tariffCalc.calculated_tariff !== null ? (
-                    <div className="text-sm text-indigo-900 space-y-1">
-                      <p>
-                        Suggested rate:{" "}
-                        <span className="font-bold tabular-nums">
-                          {tariffCalc.calculated_tariff.toFixed(2)} PKR/kWh
-                        </span>
-                      </p>
+                    <div className="text-sm text-indigo-900 space-y-3">
+                      <div className="flex flex-wrap gap-x-6 gap-y-1">
+                        <p>
+                          Effective rate:{" "}
+                          <span className="font-bold tabular-nums">
+                            {tariffCalc.effective_pkr_per_kwh?.toFixed(2) ?? tariffCalc.calculated_tariff.toFixed(2)} PKR/kWh
+                          </span>
+                        </p>
+                        {tariffCalc.bill_total_pkr != null && (
+                          <p>
+                            This month:{" "}
+                            <span className="font-bold tabular-nums">
+                              PKR {tariffCalc.bill_total_pkr.toFixed(2)}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                      {tariffCalc.tariff_plan_name && (
+                        <p className="text-xs text-indigo-700/80">
+                          {tariffCalc.tariff_plan_name}
+                          {tariffCalc.tariff_source ? ` · ${tariffCalc.tariff_source}` : ""}
+                        </p>
+                      )}
+                      {tariffCalc.bill_lines.length > 0 && (
+                        <div className="rounded-xl bg-white/80 p-3 ring-1 ring-indigo-100">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800 mb-2">
+                            Bill calculation (estimated)
+                          </p>
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {tariffCalc.bill_lines.map((line, idx) => (
+                                <tr key={idx} className="border-b border-indigo-50 last:border-0">
+                                  <td className="py-1.5 text-indigo-900">{line.label}</td>
+                                  <td className="py-1.5 text-right tabular-nums text-indigo-800">
+                                    {line.units} × {line.rate.toFixed(4)}
+                                  </td>
+                                  <td className="py-1.5 text-right tabular-nums font-semibold text-indigo-900 w-24">
+                                    {line.amount.toFixed(2)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            {tariffCalc.bill_total_pkr != null && (
+                              <tfoot>
+                                <tr>
+                                  <td colSpan={2} className="pt-2 text-right font-semibold text-indigo-900">
+                                    Subtotal
+                                  </td>
+                                  <td className="pt-2 text-right tabular-nums font-bold text-indigo-900">
+                                    {tariffCalc.bill_total_pkr.toFixed(2)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            )}
+                          </table>
+                        </div>
+                      )}
                       {tariffCalc.message && (
                         <p className="text-xs text-indigo-700/90 leading-relaxed">{tariffCalc.message}</p>
                       )}
@@ -376,7 +426,7 @@ export default function Settings() {
                 disabled={loading}
               />
               <p className="mt-2 text-xs text-slate-500">
-                Cost = kWh × tariff across Dashboard, Reports, and Forecast.
+                Slab rates load from the active IESCO plan in Django Admin. Manual rate is fallback only.
               </p>
               {useCalculatedTariff && tariffCalc?.calculated_tariff !== null && (
                 <p className="mt-1 text-xs font-medium text-indigo-600">Using calculated tariff</p>
@@ -574,8 +624,8 @@ export default function Settings() {
           <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Tip</p>
           <p className="mt-2 text-sm text-slate-200 leading-relaxed flex items-start gap-2">
             <SettingsIcon className="h-4 w-4 shrink-0 mt-0.5 text-indigo-300" />
-            Protected vs unprotected follows IESCO-style slabs from your last 6 months of usage. Over 200 units in any
-            month typically moves you to the higher unprotected rate.
+            Protected vs unprotected uses IESCO A-1 residential slabs from the database. Update rates in
+            Django Admin when a new S.R.O. is published — no code changes needed.
           </p>
         </section>
 

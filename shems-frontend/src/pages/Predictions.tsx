@@ -30,6 +30,7 @@ import {
   type Recommendation,
   type UsagePredictionResult,
   type PredictionModelInfo,
+  type ForecastContext,
 } from "../lib/api";
 
 const priorityIcons: Record<string, React.ReactNode> = {
@@ -115,6 +116,7 @@ export default function Predictions() {
   const [predictions, setPredictions] = useState<PredictionDay[]>([]);
   const [actuals, setActuals] = useState<UsagePredictionResult["actuals"]>([]);
   const [predictionsMessage, setPredictionsMessage] = useState<string | null>(null);
+  const [forecastContext, setForecastContext] = useState<ForecastContext | null>(null);
   const [modelInfo, setModelInfo] = useState<PredictionModelInfo | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,6 +131,7 @@ export default function Predictions() {
     return Promise.all([getUsagePrediction(periodDays as 7 | 30), getRecommendations()])
       .then(([predRes, recRes]) => {
         setPredictionsMessage(predRes.message);
+        setForecastContext(predRes.forecast_context ?? null);
         setPredictions(predRes.predictions);
         setActuals(predRes.actuals);
         setModelInfo(predRes.model_info ?? null);
@@ -148,6 +151,7 @@ export default function Predictions() {
       .then(([predRes, recRes]) => {
         if (cancelled) return;
         setPredictionsMessage(predRes.message);
+        setForecastContext(predRes.forecast_context ?? null);
         setPredictions(predRes.predictions);
         setActuals(predRes.actuals);
         setModelInfo(predRes.model_info ?? null);
@@ -357,6 +361,36 @@ export default function Predictions() {
             </div>
           </div>
         </section>
+
+        {predictionsMessage && (
+          <section
+            className={`rounded-2xl border px-5 py-4 text-sm leading-relaxed ${
+              forecastContext?.usage_regime === "spike_today"
+                ? "border-amber-200 bg-amber-50 text-amber-950"
+                : "border-indigo-200 bg-indigo-50 text-indigo-950"
+            }`}
+          >
+            <p className="font-semibold">
+              {forecastContext?.usage_regime === "spike_today"
+                ? "Unusual usage today — forecast is not “repeat today”"
+                : "How this forecast was built"}
+            </p>
+            <p className="mt-2">{predictionsMessage}</p>
+            {forecastContext && (
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
+                  Today: {forecastContext.today_kwh.toFixed(1)} kWh
+                </span>
+                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
+                  7-day avg: {forecastContext.recent_7_day_avg_kwh.toFixed(1)} kWh
+                </span>
+                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
+                  Typical: {forecastContext.typical_daily_kwh.toFixed(1)} kWh/day
+                </span>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Chart */}
         <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">

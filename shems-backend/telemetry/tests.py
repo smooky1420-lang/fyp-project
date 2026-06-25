@@ -88,6 +88,25 @@ class DeviceTelemetryAPITests(APITestCase):
         res = self.client.get(url)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(any(a["type"] == "offline" for a in res.data))
+        self.assertTrue(any(a["active"] for a in res.data))
+
+    def test_alerts_no_limit_when_device_has_no_limits(self):
+        TelemetryReading.objects.create(
+            device=self.device,
+            voltage=230.0,
+            current=12.0,
+            power=3000.0,
+            energy_kwh=1.0,
+        )
+        self.device.power_limit_w = None
+        self.device.daily_energy_limit_kwh = None
+        self.device.save()
+        res = self.client.get("/api/alerts/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        types = {a["type"] for a in res.data}
+        self.assertNotIn("high", types)
+        self.assertNotIn("limit", types)
+        self.assertNotIn("daily_limit", types)
 
     def test_alerts_power_limit(self):
         TelemetryReading.objects.create(
@@ -102,6 +121,40 @@ class DeviceTelemetryAPITests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         types = {a["type"] for a in res.data}
         self.assertIn("limit", types)
+
+    def test_alerts_resolve_when_telemetry_returns(self):
+        from telemetry.models import AlertEvent
+
+        url = "/api/alerts/"
+        self.client.get(url)
+        self.assertTrue(AlertEvent.objects.filter(device=self.device, type="offline").exists())
+
+        upload_url = "/api/telemetry/upload/"
+        self.client.post(
+            upload_url,
+            {"voltage": 230.0, "current": 0.5, "power": 115.0, "energy_kwh": 1.25},
+            format="json",
+            HTTP_X_DEVICE_TOKEN=self.device.device_token,
+        )
+        offline = AlertEvent.objects.filter(
+            device=self.device, type="offline", resolved_at__isnull=True
+        )
+        self.assertFalse(offline.exists())
+
+    def test_alerts_mark_read(self):
+        self.client.get("/api/alerts/")
+        from telemetry.models import AlertEvent
+
+        alert = AlertEvent.objects.filter(user=self.user).first()
+        self.assertIsNotNone(alert)
+        res = self.client.post(
+            "/api/alerts/",
+            {"action": "mark_read", "ids": [alert.id]},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.read_at)
 
     def test_device_state_by_token(self):
         self.device.relay_on = True

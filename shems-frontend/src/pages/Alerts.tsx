@@ -4,8 +4,14 @@ import {
   clearAllAlerts,
   deleteAlerts,
   getAlerts,
+  getActiveAlertCount,
   markAlertsRead,
+  notificationPermission,
+  notificationsEnabled,
+  primeNotificationsForEnable,
   refreshAlerts,
+  requestNotificationPermission,
+  showTestNotification,
   type AlertRecord,
   type AlertType,
 } from "../lib/alerts";
@@ -24,7 +30,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
-type FilterMode = "all" | "unread" | "offline" | "high" | "limit";
+type FilterMode = "all" | "unread" | "active" | "history" | "offline" | "high" | "limit";
 
 const TYPE_META: Record<
   AlertType,
@@ -78,6 +84,8 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertRecord[]>(() => getAlerts());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notifPermission, setNotifPermission] = useState(notificationPermission);
+  const [notifOn, setNotifOn] = useState(() => notificationsEnabled());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,7 +105,7 @@ export default function AlertsPage() {
     load().catch(() => void 0);
     const id = window.setInterval(() => {
       load().catch(() => void 0);
-    }, 30_000);
+    }, 10_000);
     return () => window.clearInterval(id);
   }, [load]);
 
@@ -109,15 +117,19 @@ export default function AlertsPage() {
 
   const counts = useMemo(() => {
     const unread = alerts.filter((a) => !a.read).length;
+    const active = alerts.filter((a) => a.active).length;
+    const history = alerts.filter((a) => !a.active).length;
     const offline = alerts.filter((a) => a.type === "offline").length;
     const high = alerts.filter((a) => a.type === "high").length;
     const limits = alerts.filter((a) => a.type === "limit" || a.type === "daily_limit").length;
-    return { total: alerts.length, unread, offline, high, limits };
+    return { total: alerts.length, unread, active, history, offline, high, limits };
   }, [alerts]);
 
   const filtered = useMemo(() => {
     return alerts.filter((a) => {
       if (filter === "unread") return !a.read;
+      if (filter === "active") return a.active;
+      if (filter === "history") return !a.active;
       if (filter === "offline") return a.type === "offline";
       if (filter === "high") return a.type === "high";
       if (filter === "limit") return a.type === "limit" || a.type === "daily_limit";
@@ -149,7 +161,35 @@ export default function AlertsPage() {
     clearSelection();
   }
 
-  const allHealthy = !loading && alerts.length === 0;
+  async function handleMarkRead() {
+    await markAlertsRead(selectedIds);
+    afterMutation();
+  }
+
+  async function handleDismiss() {
+    await deleteAlerts(selectedIds);
+    afterMutation();
+  }
+
+  async function handleDismissAll() {
+    await clearAllAlerts();
+    afterMutation();
+  }
+
+  const allHealthy = !loading && getActiveAlertCount() === 0;
+
+  async function enableNotifications() {
+    const result = await requestNotificationPermission();
+    setNotifPermission(result);
+    const granted = result === "granted";
+    setNotifOn(granted);
+    if (!granted) return;
+
+    primeNotificationsForEnable();
+    showTestNotification();
+    const items = await refreshAlerts();
+    setAlerts(items);
+  }
 
   return (
     <AppShell>
@@ -164,7 +204,7 @@ export default function AlertsPage() {
                 <p className="text-sm font-medium text-rose-200">Stay informed</p>
                 <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Alerts</h1>
                 <p className="mt-2 max-w-lg text-sm text-rose-200/90 leading-relaxed">
-                  Offline meters, high usage spikes, and limit breaches — refreshed every 30 seconds.
+                  Stored alert history with desktop notifications when something needs attention — refreshed every 10 seconds.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {allHealthy ? (
@@ -177,34 +217,60 @@ export default function AlertsPage() {
                       <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
                       {counts.unread} unread
                     </span>
-                  ) : (
+                  ) : counts.active > 0 ? (
                     <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-rose-100 ring-1 ring-white/10">
-                      {counts.total} active
+                      {counts.active} active
                     </span>
-                  )}
+                  ) : counts.history > 0 ? (
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-rose-100 ring-1 ring-white/10">
+                      {counts.history} in history
+                    </span>
+                  ) : null}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => load()}
-                disabled={loading}
-                className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 disabled:opacity-50 transition-colors"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Refresh
-              </button>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                {notifPermission === "denied" && (
+                  <span className="inline-flex max-w-xs items-center gap-2 rounded-xl bg-red-500/20 px-3 py-2 text-xs text-red-100 ring-1 ring-red-400/30">
+                    Notifications blocked — allow WattGuard in browser site settings
+                  </span>
+                )}
+                {notifPermission !== "unsupported" && notifPermission !== "granted" && notifPermission !== "denied" && (
+                  <button
+                    type="button"
+                    onClick={() => void enableNotifications()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-amber-500/90 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-500 transition-colors"
+                  >
+                    <Bell className="h-4 w-4" />
+                    Enable notifications
+                  </button>
+                )}
+                {notifOn && notifPermission === "granted" && (
+                  <span className="inline-flex items-center gap-2 rounded-xl bg-emerald-500/20 px-3 py-2 text-xs font-medium text-emerald-100 ring-1 ring-emerald-400/30">
+                    Desktop alerts on
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => load()}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 hover:bg-white/15 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
                 <p className="text-xs font-medium uppercase tracking-wider text-rose-200">Active</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums">{counts.total}</p>
-                <p className="mt-1 text-xs text-rose-200/80">notifications</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums">{counts.active}</p>
+                <p className="mt-1 text-xs text-rose-200/80">need action now</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
-                <p className="text-xs font-medium uppercase tracking-wider text-rose-200">Unread</p>
-                <p className="mt-2 text-3xl font-bold tabular-nums">{counts.unread}</p>
-                <p className="mt-1 text-xs text-rose-200/80">need attention</p>
+                <p className="text-xs font-medium uppercase tracking-wider text-rose-200">History</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums">{counts.history}</p>
+                <p className="mt-1 text-xs text-rose-200/80">resolved (7 days)</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10 backdrop-blur-sm">
                 <p className="text-xs font-medium uppercase tracking-wider text-rose-200">Offline</p>
@@ -245,6 +311,8 @@ export default function AlertsPage() {
                 [
                   ["all", "All"],
                   ["unread", "Unread"],
+                  ["active", "Active"],
+                  ["history", "History"],
                   ["offline", "Offline"],
                   ["high", "High usage"],
                   ["limit", "Limits"],
@@ -275,10 +343,7 @@ export default function AlertsPage() {
             <button
               type="button"
               disabled={!selectedIds.length}
-              onClick={() => {
-                markAlertsRead(selectedIds);
-                afterMutation();
-              }}
+              onClick={() => void handleMarkRead()}
               className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:opacity-50 transition-colors"
             >
               <Check className="h-4 w-4" />
@@ -287,10 +352,7 @@ export default function AlertsPage() {
             <button
               type="button"
               disabled={!selectedIds.length}
-              onClick={() => {
-                deleteAlerts(selectedIds);
-                afterMutation();
-              }}
+              onClick={() => void handleDismiss()}
               className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-red-700 ring-1 ring-red-200 hover:bg-red-50 disabled:opacity-50 transition-colors"
             >
               <Trash2 className="h-4 w-4" />
@@ -298,10 +360,7 @@ export default function AlertsPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                clearAllAlerts();
-                afterMutation();
-              }}
+              onClick={() => void handleDismissAll()}
               className="ml-auto rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
             >
               Dismiss all
@@ -327,7 +386,7 @@ export default function AlertsPage() {
               </div>
               <p className="mt-5 text-lg font-semibold text-slate-900">You&apos;re all caught up</p>
               <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                No active alerts right now. WattGuard will notify you when a meter goes offline or hits a limit you set.
+                No active alerts right now. Past events stay in History for 7 days — enable desktop notifications to catch issues while you work elsewhere.
               </p>
             </div>
           ) : (
@@ -341,7 +400,7 @@ export default function AlertsPage() {
 
         <p className="flex items-center justify-center gap-1.5 pb-2 text-center text-xs text-slate-400">
           <Activity className="h-3.5 w-3.5" />
-          Alerts refresh automatically every 30 seconds
+          Alerts refresh automatically every 10 seconds
         </p>
       </div>
     </AppShell>
@@ -387,7 +446,7 @@ function AlertRow({
     <article
       className={`overflow-hidden rounded-2xl bg-white shadow-sm ring-1 transition-all ${
         a.read ? "ring-slate-200/80" : "ring-amber-300/80 shadow-amber-100/50"
-      }`}
+      } ${!a.active ? "opacity-90" : ""}`}
     >
       <div className="flex gap-4 p-4 md:p-5">
         <input
@@ -414,9 +473,15 @@ function AlertRow({
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${meta.bg} ${meta.ring} ${meta.accent}`}>
                 {meta.label}
               </span>
+              {!a.active && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
+                  Resolved
+                </span>
+              )}
             </div>
             <time className="shrink-0 text-xs text-slate-500" dateTime={a.created_at}>
               {formatWhen(a.created_at)}
+              {a.resolved_at ? ` · cleared ${formatWhen(a.resolved_at)}` : ""}
             </time>
           </div>
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">{a.message}</p>

@@ -8,7 +8,14 @@ from devices.models import Device
 from .models import TelemetryReading
 from .serializers import TelemetryUploadSerializer, TelemetryReadingSerializer
 from user_settings.models import UserSettings
-from .alerts_service import get_user_alerts
+from user_settings.tariff_service import cost_for_units, get_active_tariff_plan, is_protected_consumer
+from user_settings.usage_service import get_home_monthly_usage
+from .alerts_service import (
+    dismiss_alerts,
+    get_user_alerts,
+    mark_alerts_read,
+    sync_device_alerts,
+)
 
 
 class TelemetryUploadAPI(APIView):
@@ -37,6 +44,8 @@ class TelemetryUploadAPI(APIView):
             power=s.validated_data["power"],
             energy_kwh=s.validated_data["energy_kwh"],
         )
+
+        sync_device_alerts(device)
 
         return Response(TelemetryReadingSerializer(reading).data, status=201)
 
@@ -161,9 +170,26 @@ class TelemetryTodaySummaryAPI(APIView):
         now_local = timezone.localtime(timezone.now(), tz)
 
         start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_local = now_local  # up to "now"
+        end_local = now_local
 
-        tariff = self.get_user_tariff(request.user)
+        settings_obj, _ = UserSettings.objects.get_or_create(user=request.user)
+        fallback_tariff = float(settings_obj.tariff_pkr_per_kwh or 0)
+        plan = get_active_tariff_plan()
+        monthly_usage = get_home_monthly_usage(request.user, months=6)
+        is_protected = is_protected_consumer([m["kwh"] for m in monthly_usage])
+        month_to_date_kwh = monthly_usage[0]["kwh"] if monthly_usage else 0.0
+
+        _, month_bill = cost_for_units(
+            month_to_date_kwh,
+            is_protected=is_protected,
+            fallback_tariff=fallback_tariff,
+            plan=plan,
+            use_slab=settings_obj.use_slab_billing,
+        )
+        if month_bill and month_bill.effective_pkr_per_kwh is not None:
+            effective_tariff = float(month_bill.effective_pkr_per_kwh)
+        else:
+            effective_tariff = fallback_tariff
 
         device_id = request.query_params.get("device_id")
 
@@ -180,7 +206,7 @@ class TelemetryTodaySummaryAPI(APIView):
 
         for d in devices:
             today_kwh = self.calc_today_kwh_for_device(d, start_local, end_local)
-            cost_pkr = round(today_kwh * tariff, 2)
+            cost_pkr = round(today_kwh * effective_tariff, 2)
 
             home_total_kwh += today_kwh
 
@@ -192,12 +218,19 @@ class TelemetryTodaySummaryAPI(APIView):
             })
 
         home_total_kwh = round(home_total_kwh, 4)
-        home_total_cost_pkr = round(home_total_kwh * tariff, 2)
+        home_total_cost_pkr = round(home_total_kwh * effective_tariff, 2)
+        month_to_date_cost = (
+            float(month_bill.total_pkr) if month_bill else round(month_to_date_kwh * effective_tariff, 2)
+        )
 
         return Response({
             "date": now_local.date().isoformat(),
             "timezone": str(tz),
-            "tariff_pkr_per_kwh": tariff,
+            "tariff_pkr_per_kwh": effective_tariff,
+            "month_to_date_kwh": round(month_to_date_kwh, 2),
+            "month_to_date_cost_pkr": round(month_to_date_cost, 2),
+            "use_slab_billing": settings_obj.use_slab_billing,
+            "is_protected": is_protected,
             "devices": devices_out,
             "home_total_kwh": home_total_kwh,
             "home_total_cost_pkr": home_total_cost_pkr,
@@ -205,8 +238,34 @@ class TelemetryTodaySummaryAPI(APIView):
 
 
 class AlertsAPI(APIView):
-    """Live alerts computed from telemetry and device limits (JWT)."""
+    """Stored alerts synced from telemetry and device limits (JWT)."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(get_user_alerts(request.user))
+
+    def post(self, request):
+        action = request.data.get("action")
+        ids_raw = request.data.get("ids", [])
+
+        if action not in ("mark_read", "dismiss", "dismiss_all"):
+            return Response({"detail": "Invalid action."}, status=400)
+
+        if action == "dismiss_all":
+            count = dismiss_alerts(request.user)
+            return Response({"updated": count})
+
+        if not isinstance(ids_raw, list) or not ids_raw:
+            return Response({"detail": "ids must be a non-empty list."}, status=400)
+
+        try:
+            alert_ids = [int(x) for x in ids_raw]
+        except (TypeError, ValueError):
+            return Response({"detail": "ids must be integers."}, status=400)
+
+        if action == "mark_read":
+            count = mark_alerts_read(request.user, alert_ids)
+        else:
+            count = dismiss_alerts(request.user, alert_ids)
+
+        return Response({"updated": count})

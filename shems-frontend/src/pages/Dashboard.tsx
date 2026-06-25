@@ -259,7 +259,7 @@ export default function Dashboard() {
     };
   }, [devices, selectedId, range]);
 
-  // Refresh live alerts for bell badge (server-computed)
+  // Refresh stored alerts for bell badge + desktop notifications
   useEffect(() => {
     if (!devices.length) return;
 
@@ -267,7 +267,7 @@ export default function Dashboard() {
       refreshAlerts().catch(() => void 0);
     };
     tick();
-    const id = window.setInterval(tick, 30_000);
+    const id = window.setInterval(tick, 10_000);
     return () => window.clearInterval(id);
   }, [devices.length]);
 

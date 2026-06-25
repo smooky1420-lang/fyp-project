@@ -276,11 +276,24 @@ export async function updateUserSettings(input: { tariff_pkr_per_kwh: number }):
   });
 }
 
+export type TariffBillLine = {
+  units: number;
+  rate: number;
+  amount: number;
+  label: string;
+};
+
 export type TariffCalculatorResult = {
   calculated_tariff: number | null;
+  effective_pkr_per_kwh: number | null;
+  bill_total_pkr: number | null;
+  bill_lines: TariffBillLine[];
   is_protected: boolean | null;
   current_month_units: number;
   monthly_usage: Array<{ month: string; kwh: number }>;
+  tariff_plan_name: string | null;
+  tariff_source: string | null;
+  use_slab_billing: boolean;
   message: string | null;
 };
 
@@ -347,12 +360,22 @@ export type PredictionModelInfo = {
   note?: string;
 };
 
+export type ForecastContext = {
+  today_kwh: number;
+  recent_7_day_avg_kwh: number;
+  typical_daily_kwh: number;
+  usage_regime: string;
+  blend_model_weight: number;
+};
+
 export type UsagePredictionResult = {
   predictions: PredictionDay[];
   actuals: Array<{ date: string; date_label: string; actual_usage_kwh: number; actual_cost_pkr: number }>;
   message: string | null;
   period_days: number;
   model_info: PredictionModelInfo | null;
+  forecast_context?: ForecastContext;
+  effective_tariff_pkr_per_kwh?: number;
 };
 
 export type Recommendation = {
@@ -426,11 +449,34 @@ export async function getLiveAlerts(): Promise<
     title: string;
     message: string;
     created_at: string;
+    resolved_at: string | null;
+    active: boolean;
     read: boolean;
     device_id?: number;
   }>
 > {
   return authFetch("/api/alerts/", { method: "GET" });
+}
+
+export async function markAlertsRead(ids: number[]): Promise<{ updated: number }> {
+  return authFetch("/api/alerts/", {
+    method: "POST",
+    body: JSON.stringify({ action: "mark_read", ids }),
+  });
+}
+
+export async function dismissAlerts(ids: number[]): Promise<{ updated: number }> {
+  return authFetch("/api/alerts/", {
+    method: "POST",
+    body: JSON.stringify({ action: "dismiss", ids }),
+  });
+}
+
+export async function clearAllAlerts(): Promise<{ updated: number }> {
+  return authFetch("/api/alerts/", {
+    method: "POST",
+    body: JSON.stringify({ action: "dismiss_all" }),
+  });
 }
 
 export async function getSolarHistory(

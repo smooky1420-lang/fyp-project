@@ -59,7 +59,7 @@ const PAGE_GUIDES = [
   {
     icon: Bell,
     title: "Alerts",
-    text: "Notifications when a device goes offline, usage is unusually high, or a limit you set is exceeded. Mark as read or dismiss.",
+    text: "Notifications when a device goes offline or a power/daily limit you set on that device is exceeded. Mark as read or dismiss.",
     color: "rose",
   },
   {
