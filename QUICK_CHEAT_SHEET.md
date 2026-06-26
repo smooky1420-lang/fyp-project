@@ -2,7 +2,7 @@
 
 **All runnable commands** for SHEMS / **WattGuard** are summarized below. Tips for editing the React UI are further down.
 
-> **Last update (2026-06-24):** JWT refresh, `/api/alerts/`, `/help` user guide, ESP32 state poll, solar fallback, 17 API tests — details in **`LAST_UPDATE.md`**.
+> **Last update (2026-06-24):** IESCO slab billing, stored alerts + browser notifications, forecast spike handling, WiFi provisioning firmware — details in **`LAST_UPDATE.md`**.
 
 ---
 
@@ -129,7 +129,7 @@ From **`shems-backend`**:
 python manage.py test telemetry users user_settings predictions solar
 ```
 
-(17 API tests as of 2026-06-24.)
+(24 API tests as of 2026-06-24.)
 
 ---
 
@@ -180,16 +180,58 @@ If unset, the app defaults to `http://127.0.0.1:8000` (see `src/lib/api.ts`).
 
 ---
 
+## Backend — live demo sender (no hardware)
+
+From **repo root** (same WiFi/LAN as backend):
+
+```bash
+python demo_sender.py              # realistic loads — normal demo
+python demo_sender.py --stress     # high load — alert/limit testing only
+```
+
+Edit `DEVICES` list in `demo_sender.py` with tokens from **Devices** page.
+
+---
+
+## Backend — Django admin (tariff slabs)
+
+```bash
+python manage.py createsuperuser   # once
+# Then http://127.0.0.1:8000/admin/ → Tariff plans / Slabs
+```
+
+---
+
+## Firmware — ESP32 (flash once, configure via WiFi)
+
+| Step | Action |
+|------|--------|
+| Libraries | Arduino: **WiFiManager** (tzapu), **PZEM004Tv30** (mandulaj) |
+| Sketch | `firmware/wattguard_esp32/wattguard_esp32.ino` |
+| First boot | Join WiFi **`WattGuard-Setup`** → enter home WiFi, server IP, port `8000`, **device token** |
+| Re-pair | Hold **BOOT**, press **RESET** (~3 s) → portal opens with new token |
+| Details | **`firmware/README.md`** |
+
+Server must listen on LAN: `python manage.py runserver 0.0.0.0:8000`
+
+---
+
 ## Typical “full demo” order
 
-1. `cd shems-backend` → `python manage.py migrate` → `python manage.py runserver 0.0.0.0:8000`
+### Option A — Exam demo account (recommended)
+
+1. `cd shems-backend` → `migrate` → `runserver 0.0.0.0:8000`
 2. `cd shems-frontend` → `npm install` → `npm run dev`
-3. Open `http://localhost:5173/help` if examiners need a **user guide** (optional)
-4. Register / log in → **Devices** → copy device token(s)
-5. `python manage.py seed_demo_devices` **or** `generate_synthetic_telemetry --device-token <TOKEN> --role ac --clear`
-6. `python manage.py train_predictor` (for Predictions page)
-7. Flash ESP32 with token + PC LAN IP; toggle **relay** on Devices page to show hardware sync
-8. Refresh **Dashboard**, **Monitoring**, **Reports**, **Predictions**, **Alerts**
+3. **Sign up** a dedicated demo user (e.g. `demo`) — keep your test account separate
+4. **Devices** → add meter(s) → copy token(s)
+5. `python manage.py seed_demo_devices <t1> <t2> <t3>` (or one token + `generate_synthetic_telemetry`)
+6. `python manage.py train_predictor`
+7. Flash ESP32 once → WiFi portal → paste token; **or** `python demo_sender.py`
+8. **Settings** → enable slab billing; open Dashboard, Reports, Predictions, Alerts
+
+### Option B — Quick UI-only
+
+Skip steps 5–7; use seeded data from an existing account.
 
 ---
 
@@ -313,5 +355,5 @@ slate (gray), gray, zinc, neutral, stone
 | `DATABASE_SCHEMA_SUMMARY.md` | Tables & ER for report |
 | `FRONTEND_QUICK_REFERENCE.md` | Exam UI tweaks |
 | `HARDWARE_CIRCUIT_GUIDE.md` | ESP32 + PZEM wiring |
-| `firmware/esp32_dummy_telemetry/README.md` | Flash & troubleshoot firmware |
+| `firmware/README.md` | WiFi provisioning firmware (flash once) |
 

@@ -49,7 +49,7 @@ def _device_active_conditions(device, now) -> dict[str, dict]:
     if device.power_limit_w and power > float(device.power_limit_w):
         conditions[f"limit:device:{device.id}"] = {
             "type": AlertEvent.TYPE_LIMIT,
-            "title": f"Power limit exceeded — {device.name}",
+            "title": f"Power limit exceeded: {device.name}",
             "message": (
                 f"Reading {power:.0f} W exceeds limit "
                 f"of {device.power_limit_w:.0f} W."
@@ -64,7 +64,7 @@ def _device_active_conditions(device, now) -> dict[str, dict]:
             day_key = today_start.date().isoformat()
             conditions[f"daily:device:{device.id}:{day_key}"] = {
                 "type": AlertEvent.TYPE_DAILY_LIMIT,
-                "title": f"Daily energy limit — {device.name}",
+                "title": f"Daily energy limit: {device.name}",
                 "message": (
                     f"Today {today_kwh:.2f} kWh exceeds daily limit "
                     f"of {limit:.2f} kWh."

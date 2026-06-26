@@ -16,7 +16,6 @@ import {
   Calculator,
   Shield,
   ShieldOff,
-  Settings as SettingsIcon,
   Sun,
   Wallet,
   Activity,
@@ -383,7 +382,7 @@ export default function Settings() {
                     </div>
                   ) : (
                     <p className="text-sm text-indigo-800">
-                      {tariffCalc.message || "Unable to calculate tariff yet — need more usage history."}
+                      {tariffCalc.message || "Unable to calculate tariff yet. Need more usage history."}
                     </p>
                   )}
                 </div>
@@ -618,15 +617,6 @@ export default function Settings() {
               />
             )}
           </div>
-        </section>
-
-        <section className="rounded-2xl bg-slate-900 text-white p-5 ring-1 ring-slate-800">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Tip</p>
-          <p className="mt-2 text-sm text-slate-200 leading-relaxed flex items-start gap-2">
-            <SettingsIcon className="h-4 w-4 shrink-0 mt-0.5 text-indigo-300" />
-            Protected vs unprotected uses IESCO A-1 residential slabs from the database. Update rates in
-            Django Admin when a new S.R.O. is published — no code changes needed.
-          </p>
         </section>
 
         <p className="flex items-center justify-center gap-1.5 pb-2 text-center text-xs text-slate-400">

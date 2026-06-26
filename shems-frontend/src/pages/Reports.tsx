@@ -359,7 +359,7 @@ export default function Reports() {
       const label = selectedReport?.month_name ?? "this period";
       items.push({
         title: "Largest consumer",
-        detail: `${top.name} — ${top.kwh.toFixed(2)} kWh in ${label} (${deviceKwhTotal > 0 ? ((top.kwh / deviceKwhTotal) * 100).toFixed(0) : 0}% of usage shown).`,
+        detail: `${top.name}: ${top.kwh.toFixed(2)} kWh in ${label} (${deviceKwhTotal > 0 ? ((top.kwh / deviceKwhTotal) * 100).toFixed(0) : 0}% of usage shown).`,
       });
     }
     return items;

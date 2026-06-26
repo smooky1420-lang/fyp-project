@@ -590,7 +590,7 @@ export default function DevicesPage() {
                     <div>
                       <h4 className="font-semibold text-slate-900">Limits & schedule</h4>
                       <p className="text-xs text-slate-500">
-                        Optional caps and allowed window — firmware enforces when connected.
+                        Optional caps and allowed window. Firmware enforces these when connected.
                       </p>
                     </div>
                   </div>

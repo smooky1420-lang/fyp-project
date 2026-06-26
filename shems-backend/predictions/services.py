@@ -127,76 +127,6 @@ def _effective_tariff_for_user(user) -> float:
     return fallback
 
 
-def _forecast_context(hist_kwh: list[float]) -> dict:
-    """
-    Summarise recent usage for UI + blending.
-    Typical home: ~5–15 kWh/day. Stress-test spikes are flagged separately.
-    """
-    if not hist_kwh:
-        return {
-            "today_kwh": 0.0,
-            "recent_7_day_avg_kwh": 0.0,
-            "typical_daily_kwh": 0.0,
-            "usage_regime": "insufficient",
-            "blend_model_weight": 1.0,
-        }
-
-    today = float(hist_kwh[-1])
-    last_7 = [float(x) for x in hist_kwh[-7:]]
-    prior_7 = [float(x) for x in hist_kwh[-8:-1]] if len(hist_kwh) > 1 else last_7[:]
-
-    recent_7_avg = sum(last_7) / len(last_7)
-    typical = sum(prior_7) / len(prior_7) if prior_7 else recent_7_avg
-
-    regime = "normal"
-    blend_model = 0.55
-
-    if typical > 0 and today > typical * 2.5:
-        regime = "spike_today"
-        blend_model = 0.2
-    elif typical > 0 and recent_7_avg > typical * 1.8:
-        regime = "elevated_week"
-        blend_model = 0.35
-    elif typical > 0 and today < typical * 0.4:
-        regime = "low_today"
-        blend_model = 0.45
-
-    return {
-        "today_kwh": round(today, 2),
-        "recent_7_day_avg_kwh": round(recent_7_avg, 2),
-        "typical_daily_kwh": round(typical, 2),
-        "usage_regime": regime,
-        "blend_model_weight": blend_model,
-    }
-
-
-def forecast_note_for_regime(ctx: dict) -> str | None:
-    regime = ctx.get("usage_regime")
-    typical = ctx.get("typical_daily_kwh", 0)
-    today = ctx.get("today_kwh", 0)
-    recent = ctx.get("recent_7_day_avg_kwh", 0)
-
-    if regime == "spike_today":
-        return (
-            f"Today ({today:.1f} kWh) is much higher than your recent typical "
-            f"~{typical:.1f} kWh/day — often caused by stress testing or a one-off heavy load. "
-            "The forecast blends your recent week with the ML model and assumes usage "
-            "may return toward normal. Run `python manage.py train_predictor` after "
-            "collecting 2+ weeks at your real usage level if patterns have permanently changed."
-        )
-    if regime == "elevated_week":
-        return (
-            f"Your last 7 days average {recent:.1f} kWh/day — above your earlier typical "
-            f"~{typical:.1f} kWh/day. Forecast is weighted toward recent consumption."
-        )
-    if regime == "normal" and typical > 0:
-        return (
-            f"Based on your recent ~{recent:.1f} kWh/day and seasonal patterns from the trained model. "
-            "Retrain with `python manage.py train_predictor` after major long-term usage changes."
-        )
-    return None
-
-
 def _predict_with_model(user, period_days, history):
     """
     Use loaded .joblib model to predict next period_days.
@@ -215,9 +145,7 @@ def _predict_with_model(user, period_days, history):
     usage_days = [d for d in history if d["kwh"] is not None and d["kwh"] >= 0]
     if not usage_days:
         return None
-    last_usage = usage_days[-1]["kwh"]
 
-    settings_obj, _ = UserSettings.objects.get_or_create(user=user)
     tariff = _effective_tariff_for_user(user)
     tz = timezone.get_current_timezone()
     now = timezone.localtime(timezone.now(), tz)
@@ -226,21 +154,15 @@ def _predict_with_model(user, period_days, history):
     use_extended = len(feature_names) >= 6 and "mean_7_kwh" in feature_names
 
     hist_kwh = [float(d["kwh"]) for d in history]
-    ctx = _forecast_context(hist_kwh)
-    blend_model = float(ctx["blend_model_weight"])
-    # Baseline: typical recent day (exclude today's spike from "normal" anchor)
-    prior = hist_kwh[-8:-1] if len(hist_kwh) > 1 else hist_kwh
-    recent_baseline = sum(prior) / len(prior) if prior else ctx["recent_7_day_avg_kwh"]
-
     if use_extended:
         window = hist_kwh[-7:]
         if len(window) < 7:
-            pad = window[0] if window else recent_baseline
+            pad = window[0] if window else 0.0
             window = [pad] * (7 - len(window)) + list(window)
-        prev_kwh = hist_kwh[-1] if hist_kwh else recent_baseline
+        prev_kwh = hist_kwh[-1] if hist_kwh else 0.0
     else:
         window = None
-        prev_kwh = float(hist_kwh[-1]) if hist_kwh else recent_baseline
+        prev_kwh = float(hist_kwh[-1]) if hist_kwh else 0.0
 
     predictions = []
     for i in range(period_days):
@@ -275,10 +197,7 @@ def _predict_with_model(user, period_days, history):
                 "prev_kwh": prev_kwh,
             }
             X = pd.DataFrame([row], columns=cols)
-        model_pred = float(model.predict(X)[0])
-        model_pred = max(0.0, model_pred)
-        pred = (blend_model * model_pred) + ((1.0 - blend_model) * recent_baseline)
-        pred = max(0.0, round(pred, 4))
+        pred = max(0.0, round(float(model.predict(X)[0]), 4))
         prev_kwh = pred
         if use_extended:
             window = window[1:] + [pred]
@@ -289,7 +208,7 @@ def _predict_with_model(user, period_days, history):
             "predicted_usage_kwh": round(pred, 2),
             "predicted_cost_pkr": cost,
         })
-    return predictions, ctx
+    return predictions
 
 
 def predict_usage(user, period_days=7):
@@ -320,9 +239,7 @@ def predict_usage(user, period_days=7):
             "If you recently retrained with new features, ensure the loaded .joblib matches."
         ), {}
 
-    model_preds, ctx = result
-    note = forecast_note_for_regime(ctx)
-    return model_preds, note, ctx
+    return result, None, {}
 
 
 def get_recommendations(user):

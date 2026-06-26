@@ -568,7 +568,7 @@ export default function Dashboard() {
       </div>
 
       <p className="text-center text-xs text-slate-400 pb-2">
-        Forecasts use your daily history —{" "}
+        Forecasts use your daily history.{" "}
         <Link to="/predictions" className="text-indigo-600 hover:underline font-medium">
           view ML forecast
         </Link>

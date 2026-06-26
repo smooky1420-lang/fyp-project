@@ -90,8 +90,19 @@ Document in your report: **single-phase Pakistan ~230 V**, **one monitored branc
 
 ## 5. Firmware / API alignment (software group)
 
-- **Upload:** `POST` to your backend telemetry endpoint with header **`X-DEVICE-TOKEN:`** (paste token from Devices page) and JSON body matching `telemetry/views.py` expectations (voltage, current, power, energy_kwh, etc.).
-- **Control:** `GET /api/devices/state-by-token/` returns **`relay_on`**, limits, schedule—your firmware can poll and drive a **relay GPIO** if you add that hardware.
+### Provisioning (flash once)
+
+1. Flash **`firmware/wattguard_esp32/wattguard_esp32.ino`** (libraries: WiFiManager, PZEM004Tv30).
+2. ESP creates hotspot **`WattGuard-Setup`** → browser form: home WiFi, **server IP** (`runserver 0.0.0.0:8000`), **device token** from WattGuard Devices page.
+3. Config saved in ESP flash; re-pair with **BOOT held at reset** (no reflash when teacher adds a new device).
+
+### Runtime
+
+- **Upload:** `POST /api/telemetry/upload/` with header **`X-DEVICE-TOKEN`** and JSON `voltage`, `current`, `power`, `energy_kwh`.
+- **Control:** `GET /api/devices/state-by-token/` returns **`relay_on`**, limits, schedule (optional relay GPIO).
+- **One PZEM demo:** register **one** device for the physical meter; use `demo_sender.py` or synthetic data for other circuits in the app.
+
+See **`firmware/README.md`** for step-by-step instructions.
 
 ---
 

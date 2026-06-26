@@ -2,8 +2,8 @@
 
 This document describes **what is stored in the database** and **how tables relate**. SHEMS uses **Django ORM**; the default development database is **SQLite** (`shems-backend/db.sqlite3`). PostgreSQL can be enabled in `config/settings.py` without changing the models.
 
-> **Not in DB:** ML model file `predictor.joblib`; **alerts** (computed live from telemetry — see `telemetry/alerts_service.py`).  
-> **Recent schema-related notes:** `LAST_UPDATE.md`
+> **Not in DB:** ML model file `predictor.joblib`.  
+> **Recent schema-related notes:** `LAST_UPDATE.md` (AlertEvent, TariffPlan/Slab, `use_slab_billing`).
 
 ---
 
@@ -27,6 +27,9 @@ erDiagram
     Device ||--o{ TelemetryReading : has
     User ||--|| UserSettings : has
     User ||--o| SolarConfig : has
+    User ||--o{ AlertEvent : receives
+    Device ||--o{ AlertEvent : triggers
+    TariffPlan ||--o{ TariffSlab : contains
     User ||--o{ SolarGeneration : has
 
     User {
@@ -54,6 +57,28 @@ erDiagram
         int id PK
         int user_id FK
         decimal tariff_pkr_per_kwh
+        bool use_slab_billing
+    }
+
+    AlertEvent {
+        int id PK
+        int user_id FK
+        int device_id FK
+        string type
+        datetime triggered_at
+    }
+
+    TariffPlan {
+        int id PK
+        string name
+        bool is_active
+    }
+
+    TariffSlab {
+        int id PK
+        int plan_id FK
+        string consumer_type
+        decimal variable_pkr_kwh
     }
 
     SolarConfig {
@@ -137,8 +162,34 @@ All app data for a household is scoped by **`user_id`** through foreign keys.
 |--------|-------------------|--------|
 | `id` | integer, PK | Auto |
 | `user_id` | integer, FK → `auth_user.id`, **unique** | One row per user |
-| `tariff_pkr_per_kwh` | decimal(8,2) | User’s tariff for cost display |
+| `tariff_pkr_per_kwh` | decimal(8,2) | Fallback flat rate when slab billing off |
+| `use_slab_billing` | boolean | When true, costs use active `TariffPlan` slabs |
 | `updated_at` | datetime | Auto on save |
+
+---
+
+### 3.4a `user_settings_tariffplan` / `user_settings_tariffslab`
+
+Admin-managed IESCO A-1 schedule. **`TariffPlan`**: name, source (S.R.O. reference), `is_active`. **`TariffSlab`**: `consumer_type` (`protected` | `unprotected`), `unit_from`, `unit_to`, `variable_pkr_kwh`, optional `fixed_charge_rs`, `label`, `sort_order`. Seeded by migration `0003_seed_iesco_a1`.
+
+---
+
+### 3.4b `telemetry_alertevent`
+
+| Column | Type (conceptual) | Notes |
+|--------|-------------------|--------|
+| `id` | integer, PK | Auto |
+| `user_id` | integer, FK → `auth_user.id` | CASCADE |
+| `device_id` | integer, FK → `devices_device.id` | CASCADE |
+| `alert_key` | string | Stable key for dedup (e.g. `offline:device:3`) |
+| `type` | string | `offline`, `limit`, `daily_limit` |
+| `title` | string | Short label |
+| `message` | text | Detail |
+| `triggered_at` | datetime | When condition became true |
+| `resolved_at` | datetime, nullable | When condition cleared |
+| `read_at` / `dismissed_at` | datetime, nullable | User actions |
+
+**Relationship:** Many alerts per user/device. Synced by `alerts_service.sync_device_alerts()` on telemetry upload.
 
 ---
 

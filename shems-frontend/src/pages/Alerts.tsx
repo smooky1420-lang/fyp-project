@@ -204,7 +204,7 @@ export default function AlertsPage() {
                 <p className="text-sm font-medium text-rose-200">Stay informed</p>
                 <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">Alerts</h1>
                 <p className="mt-2 max-w-lg text-sm text-rose-200/90 leading-relaxed">
-                  Stored alert history with desktop notifications when something needs attention — refreshed every 10 seconds.
+                  Stored alert history with desktop notifications when something needs attention. Refreshed every 10 seconds.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {allHealthy ? (
@@ -231,7 +231,7 @@ export default function AlertsPage() {
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
                 {notifPermission === "denied" && (
                   <span className="inline-flex max-w-xs items-center gap-2 rounded-xl bg-red-500/20 px-3 py-2 text-xs text-red-100 ring-1 ring-red-400/30">
-                    Notifications blocked — allow WattGuard in browser site settings
+                    Notifications blocked. Allow WattGuard in browser site settings.
                   </span>
                 )}
                 {notifPermission !== "unsupported" && notifPermission !== "granted" && notifPermission !== "denied" && (
@@ -386,7 +386,7 @@ export default function AlertsPage() {
               </div>
               <p className="mt-5 text-lg font-semibold text-slate-900">You&apos;re all caught up</p>
               <p className="mt-2 text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                No active alerts right now. Past events stay in History for 7 days — enable desktop notifications to catch issues while you work elsewhere.
+                No active alerts right now. Past events stay in History for 7 days. Enable desktop notifications to catch issues while you work elsewhere.
               </p>
             </div>
           ) : (

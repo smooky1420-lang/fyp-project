@@ -1,7 +1,7 @@
 # SHEMS / WattGuard — Architecture Summary
 
 > **FYP name:** SHEMS · **UI product name:** WattGuard (same codebase).  
-> **Recent changes:** see **`LAST_UPDATE.md`** (2026-06-24: auth, alerts API, solar fallback, Help page, firmware state sync).
+> **Recent changes:** see **`LAST_UPDATE.md`** (2026-06-24: IESCO slabs, stored alerts, forecast polish, WiFi provisioning firmware).
 
 ## 1. Overall Architecture Overview
 
@@ -73,10 +73,14 @@ The system follows a **3-tier architecture**:
 ```
 User (Django Auth)
   ├── Device (1:N) - User owns multiple devices (control, limits, schedule, device_token)
-  │     └── TelemetryReading (1:N) - Device has many readings
-  ├── UserSettings (1:1) - User has one settings record
+  │     ├── TelemetryReading (1:N) - Device has many readings
+  │     └── AlertEvent (1:N) - Stored alerts per device
+  ├── UserSettings (1:1) - Tariff rate, use_slab_billing flag
   └── SolarConfig (1:1) - User has one solar configuration
         └── SolarGeneration (1:N) - Historical solar data
+
+TariffPlan (global, admin-managed)
+  └── TariffSlab (1:N) - protected / unprotected rate bands
 ```
 
 **Trained model artifact (file, not a DB table):**
@@ -85,7 +89,9 @@ User (Django Auth)
 **Database Tables:**
 - `devices_device`: Stores device metadata (name, room, type, `device_token`, optional `relay_on`, power/daily limits, schedule fields for controllable loads)
 - `telemetry_telemetryreading`: Stores power measurements (voltage, current, power, energy_kwh)
-- `user_settings_usersettings`: Stores user tariff rate
+- `telemetry_alertevent`: Persisted alerts (offline, limit, daily_limit) with read/dismiss timestamps
+- `user_settings_usersettings`: Per-user tariff fallback rate and `use_slab_billing` toggle
+- `user_settings_tariffplan` / `user_settings_tariffslab`: Admin-editable IESCO A-1 slab schedules
 - `solar_solarconfig`: Stores solar panel configuration
 - `solar_solargeneration`: Stores historical solar generation data
 - `solar_weathercache`: Caches weather API responses
@@ -145,8 +151,8 @@ The **`predictions`** app forecasts **home total daily energy (kWh)** using a **
 
 ### Components
 
-- **`predictions/services.py`** — Feature construction from daily usage history, `predict_usage()` loads the joblib model (no moving-average fallback once a model file exists).
-- **`predictions/views.py`** — `GET /api/predictions/usage/?period=7|30` returns predicted (and recent actual) daily kWh/cost; `GET /api/predictions/recommendations/` returns rule- and data-driven tips (e.g. peak-hour usage when relevant).
+- **`predictions/services.py`** — Feature construction, `predict_usage()` (returns predictions + message + `forecast_context`), spike blending with recent baseline, slab-based cost via `_effective_tariff_for_user()`.
+- **`predictions/views.py`** — `GET /api/predictions/usage/?period=7|30` returns predicted/recent actual kWh/cost, `forecast_context`, `effective_tariff_pkr_per_kwh`; `GET /api/predictions/recommendations/` returns data-driven tips.
 - **`predictions/management/commands/train_predictor.py`** — Trains the regressor from DB telemetry and writes `models/predictor.joblib`.
 - **`validate_model.py`** (project root under `shems-backend`) — Optional offline R²/MAE check on the training setup.
 
@@ -154,9 +160,9 @@ The **`predictions`** app forecasts **home total daily energy (kWh)** using a **
 
 1. Ingest telemetry (real ESP32 uploads or synthetic generator).
 2. Run `python manage.py train_predictor` from `shems-backend` to refresh `predictor.joblib`.
-3. Frontend **Predictions** page calls `/api/predictions/usage/`.
+3. Frontend **Predictions** page calls `/api/predictions/usage/` and shows a banner when usage regime is `spike_today` (e.g. stress-test data).
 
-If `predictor.joblib` is missing, prediction responses indicate that the model must be trained first.
+If `predictor.joblib` is missing, prediction responses indicate that the model must be trained first. Forecast projects **forward** from historical patterns—it does not repeat a one-day spike unless usage stays elevated for a week (`elevated_week` regime).
 
 ---
 
@@ -291,7 +297,7 @@ The solar system integrates **real-time weather data** with **mathematical model
 
 ### Overview
 
-The system implements **Pakistan's electricity tariff structure** with protection status tracking.
+The system implements **IESCO A-1 residential slab billing** with rates stored in the database (`TariffPlan`, `TariffSlab`) and logic in **`user_settings/tariff_service.py`**.
 
 ### Components
 
@@ -299,73 +305,35 @@ The system implements **Pakistan's electricity tariff structure** with protectio
 
 **Endpoint**: `GET /api/settings/tariff-calculator/`
 
-**Purpose**: Calculates the appropriate electricity tariff rate based on usage history.
+**Purpose**: Returns protection status, current-month slab bill breakdown, and effective PKR/kWh.
 
 #### 7.2 Protection Status Logic
 
-**Definition**: A user is "protected" if **all of the last 6 months** had usage < 200 kWh.
+**Definition** (`is_protected_consumer`): Protected if **every month in the last 6** (from in-app telemetry) had usage **&lt; 200 kWh**. New users with no history default to **protected**.
 
 ```python
-is_protected = all(month["kwh"] < 200 for month in monthly_usage)
+# tariff_service.py
+window = monthly_units[:6]
+return all(float(u) < 200 for u in window)
 ```
 
-**Why 6 months?**: Pakistan's tariff protection requires consistent low usage.
+#### 7.3 Slab billing engine (`tariff_service.py`)
 
-#### 7.3 Tariff Rate Calculation (`calculate_tariff()`)
+- **Protected:** Progressive slabs (e.g. 1–100 @ 10.54, 101–200 @ 13.01 PKR/kWh on units in each band).
+- **Unprotected:** Single flat rate on **all** units based on total monthly consumption band (e.g. 165 units → 28.91 PKR/kWh on entire bill).
+- Rates seeded in migration `0003_seed_iesco_a1`; editable in Django admin when S.R.O. changes.
+- **v1 scope:** Variable energy charges only; fixed charges / FCA / taxes are future work.
 
-**Tariff Structure (PKR per kWh):**
+#### 7.4 Monthly Usage Calculation (`usage_service.py`)
 
-| Usage Range (kWh/month) | Protected Rate | Unprotected Rate |
-|------------------------|----------------|------------------|
-| 0-50 (Lifeline)        | 3.95           | N/A              |
-| 51-100                 | 7.74           | 22.44            |
-| 101-200                | 13.01          | 28.91            |
-| 201-300                | N/A*           | 33.10            |
-| 300+                   | 33.10          | 33.10            |
-
-*Note: Protected users exceeding 200 kWh lose protection status.
-
-**Algorithm:**
-```python
-def calculate_tariff(units, is_protected):
-    if units <= 50:
-        return 3.95 if is_protected else None
-    elif units <= 100:
-        return 7.74 if is_protected else 22.44
-    elif units <= 200:
-        return 13.01 if is_protected else 28.91
-    elif units <= 300:
-        return None if is_protected else 33.10
-    else:
-        return 33.10  # Highest rate
-```
-
-#### 7.4 Monthly Usage Calculation (`calc_monthly_kwh()`)
-
-**Method**: Calculates energy consumption by computing **positive deltas** in cumulative `energy_kwh` readings.
-
-**Algorithm:**
-1. Query all `TelemetryReading` records for device in month range
-2. Order by `created_at` (ascending)
-3. Calculate deltas:
-   ```python
-   for each reading:
-       delta = current_energy_kwh - previous_energy_kwh
-       if delta > 0:
-           total += delta
-   ```
-4. Sum across all devices for home total
-
-**Why deltas?**: Handles meter resets and ensures accuracy even if device restarts.
+**Method**: Positive **deltas** on cumulative `energy_kwh` per device, summed for home total (same delta idea as `calc_kwh_in_range` in predictions).
 
 #### 7.5 Cost Calculation
 
-**Formula**: `cost = energy_kwh × tariff_pkr_per_kwh`
+- When `UserSettings.use_slab_billing` is **true**: `cost_for_units()` / `calculate_monthly_bill()` from active plan.
+- Otherwise: flat `tariff_pkr_per_kwh` from user settings.
 
-**Used in:**
-- `TelemetryTodaySummaryAPI`: Today's cost per device
-- `MonthlyReportsAPI`: Monthly cost reports
-- `SolarStatusAPI`: Solar savings calculation
+**Used in:** Today summary, monthly reports, tariff calculator, predictions forecast cost.
 
 #### 7.6 Monthly Reports API (`MonthlyReportsAPI`)
 
@@ -488,40 +456,46 @@ High-level behavior of main React pages under `shems-frontend/src/pages/` (see a
 
 | Area | Behavior |
 |------|----------|
-| **Dashboard** | Today’s totals, live status, today-by-device chips, **UsageChart**, optional solar card, top **energy tips** (recommendations), polls **alerts** every 30s. |
+| **Dashboard** | Today’s totals, live status, today-by-device chips, **UsageChart**, optional solar card, top **energy tips** (recommendations), polls **alerts** every **10 s**. |
 | **Devices** | Collapsible add form; CRUD; token copy; relay; limits & schedule; ESP32 reads state via token. |
 | **Monitoring** | Per-device or **home total** charts; home energy uses **delta sum** across meters. |
 | **Reports** | 12-month API; month selection; device breakdown; solar/grid uses **SolarGeneration** history when available. |
 | **Predictions** | ML forecast + full recommendations list. |
 | **Settings** | Tariff, calculator with **use & save**, solar config. |
 | **Solar** | Weather-based estimates; **fallback** if OpenWeather unavailable. |
-| **Alerts** | **`GET /api/alerts/`** (offline, high usage, limits); auto-refresh; dismiss in UI. |
+| **Alerts** | **`GET/POST /api/alerts/`** (offline, limits); stored history; browser notifications; dismiss in UI. |
 | **Help** | **`/help`** — end-user guide & FAQ (no developer commands). |
 | **Auth** | `ProtectedRoute` on app pages; signup **auto-login**. |
 
-**Repository documentation (root):** `LAST_UPDATE.md` (dated change log), `ARCHITECTURE_SUMMARY.md` (this file), `QUICK_CHEAT_SHEET.md`, `FRONTEND_QUICK_REFERENCE.md`, `PROJECT_REPORT_QUICK_SUMMARY.md`, `DATABASE_SCHEMA_SUMMARY.md`, `HARDWARE_CIRCUIT_GUIDE.md`.
+**Repository documentation (root):** `LAST_UPDATE.md` (dated change log), `ARCHITECTURE_SUMMARY.md` (this file), `QUICK_CHEAT_SHEET.md`, `FRONTEND_QUICK_REFERENCE.md`, `PROJECT_REPORT_QUICK_SUMMARY.md`, `DATABASE_SCHEMA_SUMMARY.md`, `HARDWARE_CIRCUIT_GUIDE.md`, `firmware/README.md`.
 
 ---
 
-## 13. Alerts API (computed, not a DB table)
+## 13. Alerts API (stored in DB)
 
-Alerts are **recomputed on each request** — not stored in SQLite.
+Alerts are **persisted** in `telemetry_alertevent` and synced on each telemetry upload and `GET /api/alerts/`.
 
-- **Endpoint:** `GET /api/alerts/` (JWT)
+- **Endpoint:** `GET /api/alerts/` (JWT); `POST /api/alerts/` for mark_read / dismiss / dismiss_all
 - **Logic:** `shems-backend/telemetry/alerts_service.py`
-- **Rules:** device offline (>2 min), power >2.5 kW, `power_limit_w` exceeded, `daily_energy_limit_kwh` exceeded
-- **Frontend:** `refreshAlerts()` caches results; read/dismissed IDs in `localStorage`
+- **Rules:** device **offline** (no reading for **60 s**), user-set **`power_limit_w`**, user-set **`daily_energy_limit_kwh`** (no global “high usage” rule)
+- **Frontend:** `src/lib/alerts.ts` — browser notifications, session tracking; Alerts page; Dashboard bell polls every **10 s**
 
 ---
 
 ## 14. Hardware loop (ESP32)
 
 ```
-ESP32 ──POST──> /api/telemetry/upload/     (X-DEVICE-TOKEN)
+First boot / BOOT held at reset:
+  Phone → WiFi "WattGuard-Setup" → captive portal → WiFi + server IP + device token → saved to flash
+
+Normal operation:
+ESP32 ──POST──> /api/telemetry/upload/     (X-DEVICE-TOKEN, PZEM readings)
 ESP32 ──GET───> /api/devices/state-by-token/  (relay_on, limits, schedule)
 ```
 
-Firmware: `firmware/esp32_dummy_telemetry/`. Optional PZEM via `USE_PZEM` and PZEM004Tv30 library.
+**Firmware:** `firmware/wattguard_esp32/wattguard_esp32.ino` (WiFiManager + PZEM004Tv30). See **`firmware/README.md`**.
+
+**Demo without extra hardware:** one physical PZEM = one app device; `demo_sender.py` or synthetic telemetry for additional circuits.
 
 ---
 

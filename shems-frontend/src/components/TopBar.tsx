@@ -73,7 +73,7 @@ export default function TopBar({ pageTitle }: TopBarProps) {
               className="relative rounded-xl bg-white ring-1 ring-slate-200 p-2 hover:bg-slate-50"
               title={
                 showEnableDot
-                  ? "Alerts — click Enable alerts in the bar to get desktop notifications"
+                  ? "Alerts: click Enable alerts in the bar to get desktop notifications"
                   : "Alerts"
               }
             >

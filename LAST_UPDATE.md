@@ -6,6 +6,84 @@
 
 ---
 
+## 2026-06-24 — Slab billing, stored alerts, forecast polish, WiFi firmware
+
+**Product name:** **WattGuard**
+
+### Billing & tariffs (IESCO A-1)
+
+| Area | What changed |
+|------|----------------|
+| **DB-driven slabs** | `TariffPlan` + `TariffSlab` models; seed migration `0003_seed_iesco_a1` (protected progressive + unprotected flat bands). |
+| **Bill engine** | `user_settings/tariff_service.py` — `calculate_monthly_bill()`, `is_protected_consumer()` (6-month &lt;200 kWh rule). |
+| **Wired into API** | Tariff calculator, monthly reports, today summary, predictions cost use slab effective rate when `use_slab_billing` is on. |
+| **Admin** | Django admin can edit slab rates when S.R.O. changes. |
+| **Settings UI** | Bill breakdown table, IESCO plan source, slab toggle. |
+| **Tests** | `user_settings/test_tariff_service.py` |
+
+### Alerts (persisted + notifications)
+
+| Area | What changed |
+|------|----------------|
+| **Storage** | `AlertEvent` model (`telemetry/migrations/0003_alert_event.py`). |
+| **Rules** | Offline (~**60 s**), user **power limit**, **daily energy limit** only (no global high-usage rule). |
+| **Sync** | `alerts_service.py` creates/resolves on telemetry upload + `GET /api/alerts/`. |
+| **API** | `POST /api/alerts/` — mark_read, dismiss, dismiss_all. |
+| **Frontend** | `alerts.ts` (browser notifications), Alerts page history, TopBar enable button. |
+| **Polling** | Dashboard + Alerts refresh every **10 s**. |
+
+### Predictions & demo data
+
+| Area | What changed |
+|------|----------------|
+| **Forecast fix** | Recommendations API tuple unpack from `get_monthly_reports`. |
+| **Spike handling** | `predict_usage()` blends ML with recent baseline; `forecast_context` + UI banner on stress spikes. |
+| **Slab cost on forecast** | `_effective_tariff_for_user()` for predicted PKR. |
+| **Demo** | Separate **demo account** + `seed_demo_devices` + `train_predictor`; `demo_sender.py` (no `--stress` for normal demo). |
+
+### Hardware (flash once)
+
+| Area | What changed |
+|------|----------------|
+| **Firmware** | `firmware/wattguard_esp32/wattguard_esp32.ino` — **WiFiManager** captive portal (`WattGuard-Setup`): WiFi + server IP + device token saved to flash. |
+| **PZEM** | Real readings via PZEM004Tv30; one physical meter = one app device (others via synthetic/demo_sender). |
+| **Docs** | `firmware/README.md`, `HARDWARE_CIRCUIT_GUIDE.md` §5 updated. |
+
+**Key paths**
+
+| Item | Path |
+|------|------|
+| Tariff engine | `shems-backend/user_settings/tariff_service.py` |
+| Alerts | `shems-backend/telemetry/alerts_service.py`, `telemetry/models.py` (`AlertEvent`) |
+| Forecast | `shems-backend/predictions/services.py`, `shems-frontend/src/pages/Predictions.tsx` |
+| WiFi firmware | `firmware/wattguard_esp32/wattguard_esp32.ino` |
+
+### Demo reminders (exam account)
+
+```powershell
+cd shems-backend
+python manage.py runserver 0.0.0.0:8000
+
+# Clean demo user (after signup + 3 devices OR 1 real + synthetic):
+python manage.py seed_demo_devices <token1> <token2> <token3>
+python manage.py train_predictor
+```
+
+- **ESP32:** flash `wattguard_esp32` once → portal → paste token from Devices page.
+- **Live without hardware:** `python demo_sender.py` (repo root; update tokens in script).
+- **Tests:** `python manage.py test telemetry users user_settings predictions solar` (**24** tests).
+
+### Future work (documented, not implemented)
+
+- Optional DISCO protection declaration at signup/Settings until 6 months in-app history.
+- Usage tier milestone alerts (50/100/180/200 units).
+- IESCO fixed charges / FCA / taxes on bills.
+- Hardware pairing API (6-digit code) instead of pasting token in portal.
+
+See **`ARCHITECTURE_SUMMARY.md` §15** for full table.
+
+---
+
 ## 2026-06-24 — Pre-final polish (Tiers 1–3 + Help page)
 
 **Product name:** **WattGuard**
@@ -32,7 +110,7 @@
 | **Signup** | Auto-login after register → Dashboard. |
 | **Settings** | **Use & save this tariff** applies calculated rate in one click. |
 | **Reports** | Solar vs grid split uses **SolarGeneration** history when available; capacity estimate fallback otherwise. |
-| **Tests** | 17 API tests: `telemetry`, `users`, `user_settings`, `predictions`, `solar`. Run: `python manage.py test telemetry users user_settings predictions solar` |
+| **Tests** | 17 API tests at this stage (now **24** after tariff + alert tests). Run: `python manage.py test telemetry users user_settings predictions solar` |
 
 ### Tier 3 — Polish + user guide
 
@@ -40,7 +118,7 @@
 |------|----------------|
 | **Help** | New page `/help` — end-user guide: getting started, what each page does, smart meters, FAQ. No dev commands. Public or sidebar **Help**. |
 | **Dashboard** | Redesigned UI: dark hero (today kWh/cost/live power), quick links, meter grid, chart + tips sidebar. Old layout: `Dashboard.legacy.tsx`. |
-| **Alerts** | Auto-refresh every 30s on Alerts page; Dashboard polls alerts every 30s for bell badge. |
+| **Alerts** | Auto-refresh every 30s on Alerts page; Dashboard polls alerts every **10s** for bell badge. |
 | **Env** | `shems-frontend/.env.example` for `VITE_API_BASE`; expanded backend `.env.example`. |
 
 **New / key paths**

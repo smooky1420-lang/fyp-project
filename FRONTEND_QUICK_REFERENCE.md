@@ -18,11 +18,11 @@ This guide helps you quickly make common frontend modifications during your exam
 | Dashboard | `Dashboard.tsx` | Today totals, live status, chips, **UsageChart**, **energy tips**, solar card |
 | Monitoring | `Monitoring.tsx` | Per-device or **home total** charts; export CSV |
 | Devices | `Devices.tsx` | Collapsible add; CRUD; relay; limits/schedule; copy token |
-| Predictions | `Predictions.tsx` | ML forecast + recommendations |
-| Reports | `Reports.tsx` | 12-mo stats, month picker, device table, CSV |
-| Settings | `Settings.tsx` | Tariff, **use & save** calculator, solar |
+| Predictions | `Predictions.tsx` | ML forecast, spike banner, recommendations |
+| Reports | `Reports.tsx` | 12-mo stats, month picker, slab-aware cost, CSV |
+| Settings | `Settings.tsx` | Tariff, **IESCO slab breakdown**, use & save calculator, solar |
 | Solar | `Solar.tsx` | Status, history, weather source hint |
-| Alerts | `Alerts.tsx` | Live API alerts; filters; auto-refresh |
+| Alerts | `Alerts.tsx` | Stored API alerts; browser notifications; 10 s refresh |
 | **Help** | `Help.tsx` | **End-user guide** at `/help` — no dev commands |
 | Auth guard | `ProtectedRoute.tsx` | Wraps logged-in routes in `App.tsx` |
 

@@ -29,11 +29,11 @@ def is_protected_for_month(monthly_usage: list[dict], month_index: int) -> bool:
 def tariff_message(units: float, is_protected: bool, bill) -> str | None:
     if units < 1:
         return (
-            "Early in the month — slab estimate will refine as more usage is recorded."
+            "Early in the month. Slab estimate will refine as more usage is recorded."
         )
     if is_protected and units > 200:
         return (
-            "Usage exceeded 200 units this month — protected lifeline rates no longer apply."
+            "Usage exceeded 200 units this month. Protected lifeline rates no longer apply."
         )
     if not is_protected and units < 200:
         return (
@@ -41,7 +41,7 @@ def tariff_message(units: float, is_protected: bool, bill) -> str | None:
         )
     if bill and bill.lines:
         return None
-    return "Unable to calculate slab bill — check that an active tariff plan exists in admin."
+    return "Unable to calculate slab bill. Check that an active tariff plan exists in admin."
 
 
 class UserSettingsAPI(APIView):

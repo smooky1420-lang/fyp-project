@@ -17,6 +17,7 @@ import {
   Gauge,
   ArrowRight,
   Zap,
+  Wifi,
 } from "lucide-react";
 
 const PAGE_GUIDES = [
@@ -115,7 +116,7 @@ function HelpContent() {
               <p className="text-sm font-medium text-indigo-200">User guide</p>
               <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">How to use WattGuard</h1>
               <p className="mt-3 max-w-2xl text-sm text-indigo-200/90 leading-relaxed">
-                WattGuard helps you see how much electricity your home uses, what it costs, and how to save energy —
+                WattGuard helps you see how much electricity your home uses, what it costs, and how to save energy,
                 with optional solar tracking and usage forecasts.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
@@ -159,12 +160,12 @@ function HelpContent() {
             {
               step: "3",
               title: "Add your meters",
-              text: "Go to Devices and register each circuit you want to track — name, room, and type.",
+              text: "Go to Devices and register each circuit you want to track (name, room, and type).",
             },
             {
               step: "4",
-              title: "Link your hardware",
-              text: "Copy the device token from the Devices page into your smart meter setup. Your installer or device manual will walk you through this.",
+              title: "Link your hardware over WiFi",
+              text: "Copy the device token from Devices, then use the meter’s WiFi setup (WattGuard-Setup) to enter your home Wi‑Fi, server address, and token. See the section below.",
             },
             {
               step: "5",
@@ -223,6 +224,70 @@ function HelpContent() {
         </div>
       </section>
 
+      {/* WiFi meter setup */}
+      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 md:p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/25">
+            <Wifi className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="font-semibold text-slate-900">Link your ESP32 meter over WiFi</h2>
+            <p className="text-xs text-slate-500">Flash the firmware once; configure through the setup hotspot</p>
+          </div>
+        </div>
+        <p className="mb-4 text-sm text-slate-600 leading-relaxed">
+          WattGuard meters (ESP32 + energy sensor) are programmed once. After that you pair them from your phone or
+          laptop using a short setup wizard. You do not need to edit code when you add a new device in the app.
+        </p>
+        <ol className="space-y-3">
+          {[
+            {
+              step: "A",
+              title: "Add the device in WattGuard",
+              text: "Sign in → Devices → add your meter (name, room, type) → copy the device token shown on that card.",
+            },
+            {
+              step: "B",
+              title: "Start setup mode on the meter",
+              text: "Power on the ESP32. On first use it opens a WiFi network named WattGuard-Setup. To pair again later, hold the BOOT button, press RESET, and keep holding BOOT for about 3 seconds.",
+            },
+            {
+              step: "C",
+              title: "Join WattGuard-Setup",
+              text: "On your phone or laptop, connect to the WattGuard-Setup WiFi. A setup page should open automatically; if not, open http://192.168.4.1 in your browser.",
+            },
+            {
+              step: "D",
+              title: "Enter WiFi and WattGuard details",
+              text: "Choose your home WiFi name and password. For Server IP, enter the address of the PC running WattGuard on the same network (ask your installer or check your router). Port is usually 8000. Paste the device token from step A.",
+            },
+            {
+              step: "E",
+              title: "Confirm on the Dashboard",
+              text: "After saving, the meter reboots and sends readings about every 15 seconds. Open Dashboard or Monitoring. The device should show Online with live power and kWh.",
+            },
+          ].map((item) => (
+            <li
+              key={item.step}
+              className="flex gap-4 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/50 to-white px-4 py-3"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white">
+                {item.step}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                <p className="mt-0.5 text-sm text-slate-600 leading-relaxed">{item.text}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed ring-1 ring-slate-100">
+          <strong className="font-medium text-slate-800">New account or new token?</strong> Repeat steps A and B–E with
+          the new token. You do not need to reprogram the board. One physical meter = one device in WattGuard; additional
+          circuits in the app may use demo data if you only have a single sensor.
+        </p>
+      </section>
+
       {/* Smart meters */}
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 md:p-6">
         <div className="mb-4 flex items-center gap-3">
@@ -236,10 +301,10 @@ function HelpContent() {
         </div>
         <ul className="grid gap-3 sm:grid-cols-2">
           {[
-            "Each device has a unique token — used only to link your physical meter to your account.",
+            "Each device has a unique token. Enter it in the WiFi setup portal to link your meter to your account.",
             "For controllable devices, turn the relay on or off from Devices; hardware should follow within a short time.",
             "Set a maximum power or daily energy limit; WattGuard alerts you if those limits are exceeded.",
-            "If a device shows offline on the Dashboard, it has not sent data recently — check power, Wi‑Fi, and the token.",
+            "If a device shows offline on the Dashboard, it has not sent data recently. Check power, Wi‑Fi, server IP, and the token.",
           ].map((text, idx) => (
             <li
               key={idx}
@@ -266,11 +331,21 @@ function HelpContent() {
         <div className="space-y-2">
           <FaqItem
             q="Why does Dashboard say Offline?"
-            a="WattGuard has not received new readings from your meter in the last 2 minutes. Make sure the device is powered on, connected to your network, and linked to the correct token on the Devices page."
+            a="WattGuard has not received new readings from your meter in about the last minute. Make sure the device is powered on, connected to WiFi, the server IP in setup is correct, and the token on Devices matches what you entered in the setup portal."
+          />
+          <FaqItem
+            q="How do I link or re-link my meter over WiFi?"
+            a={
+              <>
+                Add the device on the Devices page and copy its token. Hold BOOT on the ESP32, press RESET, connect to{" "}
+                <strong>WattGuard-Setup</strong>, and enter your home WiFi, server IP, port (8000), and the token. See
+                &quot;Link your ESP32 meter over WiFi&quot; above for the full steps.
+              </>
+            }
           />
           <FaqItem
             q="Why is my cost wrong or showing zero?"
-            a="Set your tariff in Settings (PKR per kWh). Costs are calculated as: energy used today × your tariff rate."
+            a="Open Settings and set your tariff or enable slab billing. Costs use your configured rate or IESCO-style slabs on today’s and monthly usage."
           />
           <FaqItem
             q="Why is the Forecast page empty?"
@@ -286,7 +361,7 @@ function HelpContent() {
           />
           <FaqItem
             q="What do Alerts mean?"
-            a="Offline — no recent data from a device. High usage — current load is above normal. Limits — you exceeded a power or daily energy cap you set on Devices."
+            a="Offline: no recent data from a device. Power limit: load exceeded a maximum watts value you set on Devices. Daily limit: today’s kWh exceeded a cap you set on Devices."
           />
         </div>
       </section>

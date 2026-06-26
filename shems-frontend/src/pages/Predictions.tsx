@@ -30,7 +30,6 @@ import {
   type Recommendation,
   type UsagePredictionResult,
   type PredictionModelInfo,
-  type ForecastContext,
 } from "../lib/api";
 
 const priorityIcons: Record<string, React.ReactNode> = {
@@ -116,7 +115,6 @@ export default function Predictions() {
   const [predictions, setPredictions] = useState<PredictionDay[]>([]);
   const [actuals, setActuals] = useState<UsagePredictionResult["actuals"]>([]);
   const [predictionsMessage, setPredictionsMessage] = useState<string | null>(null);
-  const [forecastContext, setForecastContext] = useState<ForecastContext | null>(null);
   const [modelInfo, setModelInfo] = useState<PredictionModelInfo | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,8 +128,9 @@ export default function Predictions() {
     setError(null);
     return Promise.all([getUsagePrediction(periodDays as 7 | 30), getRecommendations()])
       .then(([predRes, recRes]) => {
-        setPredictionsMessage(predRes.message);
-        setForecastContext(predRes.forecast_context ?? null);
+        setPredictionsMessage(
+          predRes.predictions.length === 0 ? predRes.message : null
+        );
         setPredictions(predRes.predictions);
         setActuals(predRes.actuals);
         setModelInfo(predRes.model_info ?? null);
@@ -150,8 +149,9 @@ export default function Predictions() {
     Promise.all([getUsagePrediction(periodDays as 7 | 30), getRecommendations()])
       .then(([predRes, recRes]) => {
         if (cancelled) return;
-        setPredictionsMessage(predRes.message);
-        setForecastContext(predRes.forecast_context ?? null);
+        setPredictionsMessage(
+          predRes.predictions.length === 0 ? predRes.message : null
+        );
         setPredictions(predRes.predictions);
         setActuals(predRes.actuals);
         setModelInfo(predRes.model_info ?? null);
@@ -169,19 +169,30 @@ export default function Predictions() {
   }, [periodDays]);
 
   const chartData = useMemo((): ChartRow[] => {
-    const actualPoints: ChartRow[] = actuals.map((a) => ({
-      date: a.date,
-      date_label: a.date_label,
-      actual_usage_kwh: a.actual_usage_kwh,
-      actual_cost_pkr: a.actual_cost_pkr,
-    }));
-    const predPoints: ChartRow[] = predictions.map((p) => ({
-      date: p.date,
-      date_label: p.date_label,
-      predicted_usage_kwh: p.predicted_usage_kwh ?? undefined,
-      predicted_cost_pkr: p.predicted_cost_pkr ?? undefined,
-    }));
-    return [...actualPoints, ...predPoints].sort(
+    const byDate = new Map<string, ChartRow>();
+
+    for (const a of actuals) {
+      byDate.set(a.date, {
+        date: a.date,
+        date_label: a.date_label,
+        actual_usage_kwh: a.actual_usage_kwh,
+        actual_cost_pkr: a.actual_cost_pkr,
+      });
+    }
+
+    for (const p of predictions) {
+      const existing = byDate.get(p.date);
+      byDate.set(p.date, {
+        date: p.date,
+        date_label: p.date_label,
+        actual_usage_kwh: existing?.actual_usage_kwh,
+        actual_cost_pkr: existing?.actual_cost_pkr,
+        predicted_usage_kwh: p.predicted_usage_kwh ?? undefined,
+        predicted_cost_pkr: p.predicted_cost_pkr ?? undefined,
+      });
+    }
+
+    return Array.from(byDate.values()).sort(
       (x, y) => new Date(x.date).getTime() - new Date(y.date).getTime()
     );
   }, [predictions, actuals]);
@@ -362,36 +373,6 @@ export default function Predictions() {
           </div>
         </section>
 
-        {predictionsMessage && (
-          <section
-            className={`rounded-2xl border px-5 py-4 text-sm leading-relaxed ${
-              forecastContext?.usage_regime === "spike_today"
-                ? "border-amber-200 bg-amber-50 text-amber-950"
-                : "border-indigo-200 bg-indigo-50 text-indigo-950"
-            }`}
-          >
-            <p className="font-semibold">
-              {forecastContext?.usage_regime === "spike_today"
-                ? "Unusual usage today — forecast is not “repeat today”"
-                : "How this forecast was built"}
-            </p>
-            <p className="mt-2">{predictionsMessage}</p>
-            {forecastContext && (
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
-                  Today: {forecastContext.today_kwh.toFixed(1)} kWh
-                </span>
-                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
-                  7-day avg: {forecastContext.recent_7_day_avg_kwh.toFixed(1)} kWh
-                </span>
-                <span className="rounded-full bg-white/70 px-2.5 py-1 ring-1 ring-black/5">
-                  Typical: {forecastContext.typical_daily_kwh.toFixed(1)} kWh/day
-                </span>
-              </div>
-            )}
-          </section>
-        )}
-
         {/* Chart */}
         <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80">
           <div className="mb-4 flex items-center gap-3">
@@ -475,8 +456,8 @@ export default function Predictions() {
                     stroke="#4f46e5"
                     strokeWidth={2.5}
                     name="Predicted usage (kWh)"
-                    dot={false}
-                    connectNulls
+                    dot={{ r: 3, fill: "#4f46e5" }}
+                    connectNulls={false}
                   />
                   <Line
                     yAxisId="right"
@@ -485,8 +466,8 @@ export default function Predictions() {
                     stroke="#7c3aed"
                     strokeWidth={2}
                     name="Predicted cost (PKR)"
-                    dot={false}
-                    connectNulls
+                    dot={{ r: 3, fill: "#7c3aed" }}
+                    connectNulls={false}
                   />
                   {chartData.some((p) => p.actual_usage_kwh != null && p.actual_usage_kwh > 0) && (
                     <>
@@ -543,7 +524,7 @@ export default function Predictions() {
             <div className="py-12 text-center text-slate-500 text-sm">Loading tips…</div>
           ) : recommendations.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-12 text-center text-sm text-slate-500 max-w-md mx-auto">
-              Tips will appear as more usage data comes in — heavy devices, peak hours, and trends.
+              Tips will appear as more usage data comes in: heavy devices, peak hours, and trends.
             </div>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2">
